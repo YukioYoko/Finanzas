@@ -12,6 +12,7 @@ import Fijos from "./screens/Fijos";
 import Categorias from "./screens/Categorias";
 import Ajustes from "./screens/Ajustes";
 import Tour from "./components/Tour";
+import { IconGear } from "./components/icons";
 
 const STORAGE_KEY = "finanzas:data";
 
@@ -28,6 +29,7 @@ export default function FinanzasApp() {
   const [tab, setTab] = useState("resumen");
   const [saveError, setSaveError] = useState(false);
   const [showTour, setShowTour] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   // Cargar
   useEffect(() => {
@@ -108,7 +110,6 @@ export default function FinanzasApp() {
   }
 
   const update = (patch) => setData((d) => ({ ...d, ...patch }));
-  const toggleTheme = () => update({ theme: mode === "dark" ? "light" : "dark" });
 
   return (
     <ThemeContext.Provider value={C}>
@@ -129,25 +130,14 @@ export default function FinanzasApp() {
                 </p>
               )}
             </div>
-            <div className="flex gap-2">
-              <button
-                onClick={toggleTheme}
-                aria-label={mode === "dark" ? "Cambiar a tema claro" : "Cambiar a tema oscuro"}
-                className="rounded-full px-3 py-1.5 text-sm flex items-center gap-2 transition-opacity hover:opacity-85"
-                style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.muted }}
-              >
-                <span aria-hidden="true">{mode === "dark" ? "☀️" : "🌙"}</span>
-                <span className="hidden sm:inline">{mode === "dark" ? "Tema claro" : "Tema oscuro"}</span>
-              </button>
-              <button
-                onClick={() => setTab("ajustes")}
-                aria-label="Abrir ajustes"
-                className="rounded-full px-3 py-1.5 text-sm transition-opacity hover:opacity-85"
-                style={{ background: C.surface, border: `1px solid ${C.border}`, color: tab === "ajustes" ? C.accent : C.muted }}
-              >
-                <span aria-hidden="true">⚙️</span>
-              </button>
-            </div>
+            <button
+              onClick={() => setShowSettings(true)}
+              aria-label="Abrir ajustes"
+              className="rounded-full p-2.5 transition-opacity hover:opacity-85"
+              style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.muted }}
+            >
+              <IconGear />
+            </button>
           </header>
 
           {/* Tabs */}
@@ -167,10 +157,32 @@ export default function FinanzasApp() {
           </nav>
 
           {TABS.map(({ id, Screen }) => (tab === id ? <Screen key={id} data={data} update={update} /> : null))}
-          {tab === "ajustes" && (
-            <Ajustes data={data} update={update} onBack={() => setTab("resumen")} onShowTour={() => setShowTour(true)} />
-          )}
         </div>
+
+        {/* Ajustes: sidebar deslizable desde la derecha */}
+        {showSettings && (
+          <div className="fixed inset-0 z-40">
+            <div
+              className="absolute inset-0"
+              style={{ background: "rgba(0,0,0,0.5)", animation: "fade-in 0.2s ease-out" }}
+              onClick={() => setShowSettings(false)}
+              aria-hidden="true"
+            />
+            <aside
+              className="absolute right-0 top-0 h-full w-full max-w-sm overflow-y-auto p-4"
+              style={{ background: C.bg, borderLeft: `1px solid ${C.border}`, animation: "slide-in-right 0.2s ease-out" }}
+              role="dialog"
+              aria-label="Ajustes"
+            >
+              <Ajustes
+                data={data}
+                update={update}
+                onClose={() => setShowSettings(false)}
+                onShowTour={() => { setShowSettings(false); setShowTour(true); }}
+              />
+            </aside>
+          </div>
+        )}
 
         {/* Recorrido de bienvenida: primera vez, o cuando se pide desde Ajustes */}
         {(showTour || !data.tourSeen) && (

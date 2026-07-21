@@ -4,28 +4,28 @@ import { Btn } from "./ui";
 
 const STEPS = [
   {
-    title: "¡Bienvenido a Mis Finanzas! 👋",
+    title: "Bienvenido a Mis Finanzas",
     body: "Tu dinero, claro y en un solo lugar: cuentas, tarjetas, gastos, suscripciones y deudas de crédito. Todo se guarda en tu teléfono; nada sale de él.",
   },
   {
-    title: "Cuentas y tarjetas 💳",
+    title: "Cuentas y tarjetas",
     body: "En la pestaña Cuentas crea tus cuentas de banco o efectivo y agrégales tarjetas de débito, crédito o cajas de ahorro. A las de crédito ponles su día de corte y de pago para que la app calcule cuánto pagar cada mes; a las de ahorro, su rendimiento anual.",
   },
   {
-    title: "Movimientos ✍️",
+    title: "Movimientos",
     body: "Registra gastos, ingresos y transferencias entre cuentas. Si le das permiso, la app lee las notificaciones de tu banco y te deja los cargos listos para confirmar: tú solo completas el título y la categoría.",
   },
   {
-    title: "Cargos fijos 🔁",
+    title: "Cargos fijos",
     body: "En Fijos agrega tus suscripciones y servicios (Netflix, gimnasio, internet…). Se registran solos cada mes en su día de cobro, y puedes ponerles fecha de fin.",
   },
   {
-    title: "Resumen 📊",
+    title: "Resumen",
     body: "Tu balance total (ya descontando la deuda de crédito), cuánto pagar este mes de tus tarjetas, la gráfica de gastos e ingresos, tus compras a meses y el detalle de cada tarjeta de crédito con su botón de pago.",
   },
   {
-    title: "Listo ✅",
-    body: "Recibirás una notificación en cada fecha de corte y de pago de tus tarjetas. Puedes volver a ver este recorrido cuando quieras en Ajustes (⚙). ¡Empieza creando tu primera cuenta!",
+    title: "Todo listo",
+    body: "Recibirás una notificación en cada fecha de corte y de pago de tus tarjetas. Puedes volver a ver este recorrido cuando quieras desde Ajustes, el engrane en la parte superior. Empieza creando tu primera cuenta.",
   },
 ];
 

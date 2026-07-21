@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useTheme } from "../theme";
 import { SUPPORT_EMAIL } from "../constants";
-import { Btn, Card, SectionTitle } from "../components/ui";
+import { Btn, Card } from "../components/ui";
+import { IconSun, IconMoon, IconMail, IconPlay, IconX } from "../components/icons";
 
 // Sección plegable reutilizable (FAQ, términos…)
 function Collapsible({ title, children }) {
@@ -72,23 +73,35 @@ const TERMS = [
   ["7. Cambios", "Estos términos pueden actualizarse con nuevas versiones de la app. El uso continuado tras una actualización implica la aceptación de los términos vigentes."],
 ];
 
-export default function Ajustes({ data, update, onBack, onShowTour }) {
+export default function Ajustes({ data, update, onClose, onShowTour }) {
   const C = useTheme();
   const mode = data.theme === "light" ? "light" : "dark";
 
   return (
     <div className="space-y-4">
-      <SectionTitle right={<Btn kind="ghost" onClick={onBack}>← Volver</Btn>}>Ajustes</SectionTitle>
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm uppercase tracking-widest" style={{ color: C.accent }}>Ajustes</h2>
+        <button
+          onClick={onClose}
+          aria-label="Cerrar ajustes"
+          className="rounded-full p-2 transition-opacity hover:opacity-85"
+          style={{ border: `1px solid ${C.border}`, color: C.muted }}
+        >
+          <IconX />
+        </button>
+      </div>
 
       {/* Apariencia y recorrido */}
       <Card>
         <h3 className="text-sm font-medium mb-3">Preferencias</h3>
-        <div className="flex flex-col sm:flex-row gap-2">
-          <Btn kind="ghost" onClick={() => update({ theme: mode === "dark" ? "light" : "dark" })}>
-            {mode === "dark" ? "☀️ Cambiar a tema claro" : "🌙 Cambiar a tema oscuro"}
+        <div className="flex flex-col gap-2">
+          <Btn kind="ghost" className="flex items-center justify-center gap-2" onClick={() => update({ theme: mode === "dark" ? "light" : "dark" })}>
+            {mode === "dark" ? <IconSun /> : <IconMoon />}
+            {mode === "dark" ? "Cambiar a tema claro" : "Cambiar a tema oscuro"}
           </Btn>
-          <Btn kind="ghost" onClick={onShowTour}>
-            🚀 Ver el recorrido de la app
+          <Btn kind="ghost" className="flex items-center justify-center gap-2" onClick={onShowTour}>
+            <IconPlay />
+            Ver el recorrido de la app
           </Btn>
         </div>
       </Card>
@@ -111,10 +124,11 @@ export default function Ajustes({ data, update, onBack, onShowTour }) {
         </p>
         <a
           href={`mailto:${SUPPORT_EMAIL}?subject=Soporte%20Mis%20Finanzas`}
-          className="inline-block rounded-lg px-3 py-2 text-sm"
+          className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm"
           style={{ background: C.accent, color: C.accentText, fontWeight: 600 }}
         >
-          ✉️ Contactar soporte
+          <IconMail />
+          Contactar soporte
         </a>
         <p className="text-xs mt-2" style={{ color: C.faint }}>{SUPPORT_EMAIL}</p>
       </Card>
