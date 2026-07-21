@@ -29,13 +29,18 @@ Pushing to `main` triggers `.github/workflows/build-apk.yml`, which builds the w
 
 ## Architecture
 
-The entire application lives in a single file: `src/App.jsx` (~1150 lines). `src/main.jsx` just mounts `<FinanzasApp />`. There is no router, no component directory, and no separate state-management library — everything (UI primitives, theming, business logic, and the four screens) is defined in this one file, top to bottom:
+`src/main.jsx` mounts `<FinanzasApp />` (default export of `src/App.jsx`). There is no router and no state-management library. Modules:
 
-1. **Theming** — `THEMES.dark` / `THEMES.light` color tokens, exposed via `ThemeContext` / `useTheme()`. Every component reads colors from `useTheme()` rather than Tailwind color classes, since Tailwind is only used for layout (flex/grid/spacing), not color.
-2. **UI primitives** — `Field`, `TextInput`, `Select`, `Btn`, `Chip`, `Amount`, `Card`, `SectionTitle`, `Empty`. Reuse these instead of writing raw `<input>`/`<button>` markup.
-3. **App shell** (`FinanzasApp`) — owns the single top-level `data` state object, loads/saves it, and renders a tab bar switching between five screens: Resumen, Cuentas, Movimientos, Fijos, Categorías.
-4. **Data helpers** — pure functions (`cardLabel`, `movTotal`, `balanceOfCard`, `applyInterest`) that derive balances and interest from the raw `movements` array. These are the source of truth for any money math; screens never compute balances independently.
-5. **Screen components** — `Resumen`, `Cuentas`, `Movimientos`, `Fijos`, `Categorias`, each taking `{ data, update }` and calling `update(patch)` to merge a partial state patch into `data`.
+- **`src/App.jsx`** — the app shell: owns the single top-level `data` state object, loads/saves it, runs the load-time effects (interest accrual, recurring charges, notification-inbox drain, reminder scheduling), and renders the tab bar switching between five screens: Resumen, Cuentas, Movimientos, Fijos, Categorías.
+- **`src/theme.js`** — `THEMES.dark` / `THEMES.light` color tokens, `ThemeContext` / `useTheme()`. Every component reads colors from `useTheme()` rather than Tailwind color classes; Tailwind is only used for layout (flex/grid/spacing), not color.
+- **`src/constants.js`** — `FREQS`, `MESES_OPCIONES`, month names, `seedCategories`, and `EMPTY` (the state shape).
+- **`src/store.js`** — the storage abstraction (see Persistence).
+- **`src/utils/format.js`** — `money`, `uid`, `todayISO`, `isoOf`, `fmtDia`.
+- **`src/lib/finance.js`** — all money math as pure functions: `cardLabel`, `movTotal`, `balanceOfCard`, `creditStatement`, `applyInterest`, `applyRecurring`, `nextChargeOf`, `parseCapturedNotification`, `clampDay`, `dateWithDay`. This is the single source of truth for balances and statements; screens never compute them independently.
+- **`src/lib/notifications.js`** — the `NotificationInbox` native-plugin proxy and `scheduleCardReminders`.
+- **`src/components/ui.jsx`** — UI primitives: `Field`, `TextInput`, `Select`, `Btn`, `Chip`, `Amount`, `Card`, `SectionTitle`, `Empty`. Reuse these instead of writing raw `<input>`/`<button>` markup.
+- **`src/components/GraficaMensual.jsx`** — the 6-month income/expense grouped-column SVG chart (with table view).
+- **`src/screens/*.jsx`** — one file per tab (`Resumen`, `Cuentas`, `Movimientos`, `Fijos`, `Categorias`), each taking `{ data, update }` and calling `update(patch)` to merge a partial state patch into `data`. `Movimientos.jsx` also holds `InboxItem` and `MovEditor`; `Fijos.jsx` holds `FijoForm`.
 
 ### Data model
 
@@ -43,8 +48,8 @@ A single object (shape defined by `EMPTY`) holds everything:
 - `accounts`: bank or cash accounts (can be `excluded` from totals)
 - `cards`: belong to an account; `type` is `debito`, `credito` (has optional `cutDay`/`payDay` statement days 1–31), `ahorro` (savings, has `rate` % and `lastAccrual`), or `efectivo` (auto-created for cash accounts). Debit/credit cards may also carry `digitalLast4` — the last 4 digits of an associated digital card, used (alongside `last4`) to match captured notifications to the card
 - `categories`: each has a `freq` of `mensual` / `anual` / `esporadico` (drives how Resumen groups spending)
-- `movements`: the append-only transaction log — `type` (`gasto`/`ingreso`), `amount`, `commission`, `months` (>1 means MSI/installments), `categoryId`, `cardId`, `date`, and flags for system/special entries: `interest` (savings yield), `adjust` (balance edits), `transfer` + `transferId` (two-leg transfers between cards), `recurring` + `recurringId` (auto-generated monthly charges)
-- `recurring`: monthly fixed charges (subscriptions) — `description`, `amount`, `cardId`, `categoryId`, `day` (charge day 1–31), optional `endDate`, `createdAt`, `lastApplied`. `applyRecurring()` runs on load and when the list changes, generating overdue `gasto` movements (flagged `recurring`) up to today; generated movements count as normal spending in every stat, and deleting a recurring item keeps its past movements. Managed in the "Fijos" tab
+- `movements`: the transaction log — `type` (`gasto`/`ingreso`), `title` (required in the UI; older entries may only have `description`, so display falls back `title || description`), `description` (optional), `amount`, `commission`, `months` (>1 means MSI/installments), `categoryId`, `cardId`, `date`, and flags for system/special entries: `interest` (savings yield), `adjust` (balance edits), `transfer` + `transferId` (two-leg transfers between cards), `recurring` + `recurringId` (auto-generated monthly charges)
+- `recurring`: monthly fixed charges (subscriptions) — `title` (+ optional `description`), `amount`, `cardId`, `categoryId`, `day` (charge day 1–31), optional `endDate`, `createdAt`, `lastApplied`. `applyRecurring()` runs on load and when the list changes, generating overdue `gasto` movements (flagged `recurring`) up to today; generated movements count as normal spending in every stat, and deleting a recurring item keeps its past movements. Managed in the "Fijos" tab
 - `theme`: `"dark"` or `"light"`
 
 Everything else (card balances, credit debt, savings totals, monthly/annual spend groupings, MSI schedules, credit statements) is derived on the fly from `movements` — there are no stored running balances. Balance edits in the UI don't mutate a balance field; they compute a diff and append a synthetic `adjust` movement so the ledger stays internally consistent.
