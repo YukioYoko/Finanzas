@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { useTheme } from "../theme";
 import { FREQS } from "../constants";
 import { money, uid, todayISO, fmtDia } from "../utils/format";
-import { cardLabel, clampDay, nextChargeOf } from "../lib/finance";
+import { cardLabel, clampDay, nextChargeOf, cardTypeLabel } from "../lib/finance";
 import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty } from "../components/ui";
 
 // Formulario de cargo fijo, para crear (initial vacío) o editar (initial = cargo existente)
@@ -72,7 +72,7 @@ function FijoForm({ data, initial, onSave, onCancel }) {
             <option value="">{accountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
             {accCards.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.name}{c.last4 ? ` ····${c.last4}` : ""} · {c.type === "credito" ? "Crédito" : c.type === "ahorro" ? "Caja de ahorro" : c.type === "efectivo" ? "Efectivo" : "Débito"}
+                {c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}
               </option>
             ))}
           </Select>

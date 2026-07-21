@@ -12,11 +12,17 @@ export function movTotal(m) {
   return (Number(m.amount) || 0) + (Number(m.commission) || 0);
 }
 
-// Saldo por tarjeta: crédito = deuda (gastos - pagos), débito/ahorro = saldo (ingresos - gastos)
+// Tipos de tarjeta que representan dinero que se debe (no dinero disponible)
+export const isDebtType = (t) => t === "credito" || t === "deuda";
+
+const CARD_TYPE_LABELS = { debito: "Débito", credito: "Crédito", ahorro: "Caja de ahorro", efectivo: "Efectivo", deuda: "Deuda" };
+export const cardTypeLabel = (t) => CARD_TYPE_LABELS[t] || "Débito";
+
+// Saldo por tarjeta: crédito/deuda = lo que se debe (gastos - pagos), débito/ahorro = saldo (ingresos - gastos)
 export function balanceOfCard(card, movements) {
   const g = movements.filter((m) => m.cardId === card.id && m.type === "gasto").reduce((s, m) => s + movTotal(m), 0);
   const p = movements.filter((m) => m.cardId === card.id && m.type === "ingreso").reduce((s, m) => s + movTotal(m), 0);
-  return card.type === "credito" ? g - p : p - g;
+  return isDebtType(card.type) ? g - p : p - g;
 }
 
 // ---------- Corte y pago de tarjetas de crédito ----------
@@ -149,13 +155,15 @@ export function applyRecurring(data) {
   return changed ? { ...data, recurring, movements } : data;
 }
 
-// Genera automáticamente los rendimientos de las cajas de ahorro (interés compuesto diario)
+// Genera automáticamente el interés compuesto diario:
+// - cajas de ahorro: rendimiento (ingreso) sobre el saldo, tasa anual
+// - deudas: intereses (gasto) sobre lo que se debe, tasa anual o mensual (se anualiza ×12)
 export function applyInterest(data) {
   const today = todayISO();
   let movements = [...data.movements];
   let changed = false;
   const cards = data.cards.map((card) => {
-    if (card.type !== "ahorro") return card;
+    if (card.type !== "ahorro" && card.type !== "deuda") return card;
     if (!card.lastAccrual) {
       changed = true;
       return { ...card, lastAccrual: today };
@@ -166,14 +174,19 @@ export function applyInterest(data) {
     if (rate > 0) {
       const balance = balanceOfCard(card, movements);
       if (balance > 0) {
-        const interest = Math.round(balance * (Math.pow(1 + rate / 100 / 365, days) - 1) * 100) / 100;
+        const annualRate = card.ratePeriod === "mensual" ? rate * 12 : rate;
+        const interest = Math.round(balance * (Math.pow(1 + annualRate / 100 / 365, days) - 1) * 100) / 100;
         if (interest >= 0.01) {
+          const isDebt = card.type === "deuda";
+          const periodLabel = card.ratePeriod === "mensual" ? "mensual" : "anual";
           movements = [{
             id: uid(),
             cardId: card.id,
-            type: "ingreso",
+            type: isDebt ? "gasto" : "ingreso",
             amount: interest,
-            title: `Rendimientos ${rate}% anual (${days} ${days === 1 ? "día" : "días"})`,
+            title: isDebt
+              ? `Intereses ${rate}% ${periodLabel} (${days} ${days === 1 ? "día" : "días"})`
+              : `Rendimientos ${rate}% anual (${days} ${days === 1 ? "día" : "días"})`,
             categoryId: null,
             date: today,
             months: 1,

@@ -3,7 +3,7 @@ import { Capacitor } from "@capacitor/core";
 import { useTheme } from "../theme";
 import { FREQS, MESES_OPCIONES } from "../constants";
 import { money, uid, todayISO } from "../utils/format";
-import { cardLabel, movTotal } from "../lib/finance";
+import { cardLabel, movTotal, cardTypeLabel } from "../lib/finance";
 import { NotificationInbox } from "../lib/notifications";
 import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty } from "../components/ui";
 
@@ -392,7 +392,7 @@ export default function Movimientos({ data, update }) {
                 <option value="">{accountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
                 {accCards.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name}{c.last4 ? ` ····${c.last4}` : ""} · {c.type === "credito" ? "Crédito" : c.type === "ahorro" ? "Caja de ahorro" : c.type === "efectivo" ? "Efectivo" : "Débito"}
+                    {c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}
                   </option>
                 ))}
               </Select>
@@ -410,7 +410,7 @@ export default function Movimientos({ data, update }) {
                     <option value="">{toAccountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
                     {toAccCards.filter((c) => c.id !== cardId).map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.name}{c.last4 ? ` ····${c.last4}` : ""} · {c.type === "credito" ? "Crédito" : c.type === "ahorro" ? "Caja de ahorro" : c.type === "efectivo" ? "Efectivo" : "Débito"}
+                        {c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}
                       </option>
                     ))}
                   </Select>

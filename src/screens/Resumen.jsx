@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { useTheme } from "../theme";
 import { MONTH_NAMES } from "../constants";
 import { money, uid, todayISO, fmtDia } from "../utils/format";
-import { cardLabel, movTotal, balanceOfCard, creditStatement, clampDay } from "../lib/finance";
+import { cardLabel, movTotal, balanceOfCard, creditStatement, clampDay, isDebtType } from "../lib/finance";
 import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty } from "../components/ui";
 import GraficaMensual from "../components/GraficaMensual";
 
@@ -51,8 +51,12 @@ export default function Resumen({ data, update }) {
 
   // Dinero disponible (débito, ahorro y efectivo) de lo contabilizado
   const availableBalance = cards
-    .filter((c) => isCountedCard(c) && c.type !== "credito")
+    .filter((c) => isCountedCard(c) && !isDebtType(c.type))
     .reduce((s, c) => s + balanceOfCard(c, movements), 0);
+
+  // Deudas (préstamos y similares) contabilizadas
+  const debtAccCards = cards.filter((c) => c.type === "deuda" && isCountedCard(c));
+  const otherDebt = debtAccCards.reduce((s, c) => s + balanceOfCard(c, movements), 0);
 
   // Deuda de tarjetas de crédito: gastos - pagos/ingresos
   const creditCards = cards.filter((c) => c.type === "credito" && isCountedCard(c));
@@ -62,8 +66,8 @@ export default function Resumen({ data, update }) {
     return { card: c, debt: g - p, statement: creditStatement(c, movements, now) };
   });
   const totalDebt = debtByCard.reduce((s, d) => s + d.debt, 0);
-  // Balance neto: lo disponible menos la deuda en crédito
-  const netBalance = availableBalance - totalDebt;
+  // Balance neto: lo disponible menos la deuda en crédito y las demás deudas
+  const netBalance = availableBalance - totalDebt - otherDebt;
   // Por pagar este mes: saldo al corte (con mensualidades MSI); sin día de corte, la deuda completa
   const totalToPayAll = debtByCard.reduce((s, d) => s + (d.statement ? d.statement.toPay : Math.max(d.debt, 0)), 0);
 
@@ -104,8 +108,9 @@ export default function Resumen({ data, update }) {
     return { card: c, balance, rate, monthlyYield: (balance * rate) / 100 / 12 };
   });
   const totalSavings = savingsByCard.reduce((s, d) => s + d.balance, 0);
+  // Solo rendimientos de ahorro (ingresos); los intereses de deudas son gastos
   const interesesYear = counted
-    .filter((m) => m.interest && m.date.startsWith(year))
+    .filter((m) => m.interest && m.type === "ingreso" && m.date.startsWith(year))
     .reduce((s, m) => s + movTotal(m), 0);
 
   // Compras a meses activas
@@ -161,7 +166,7 @@ export default function Resumen({ data, update }) {
             {money(netBalance)}
           </span>
           <p className="text-xs mt-2" style={{ color: C.faint }}>
-            Disponible {money(availableBalance)} − deuda en crédito {money(totalDebt)}
+            Disponible {money(availableBalance)} − crédito {money(totalDebt)}{otherDebt > 0 ? <> − deudas {money(otherDebt)}</> : null}
           </p>
         </Card>
         <Card>
@@ -273,6 +278,36 @@ export default function Resumen({ data, update }) {
           </div>
         )}
       </div>
+
+      {/* Deudas (préstamos y similares) */}
+      {debtAccCards.length > 0 && (
+        <div>
+          <SectionTitle right={<span className="text-xs" style={{ color: C.red }}>Total: {money(otherDebt)}</span>}>
+            Deudas
+          </SectionTitle>
+          <div className="space-y-2">
+            {debtAccCards.map((c) => {
+              const acc = accById[c.accountId];
+              const bal = balanceOfCard(c, movements);
+              return (
+                <Card key={c.id} className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <span className="text-sm truncate">{acc ? acc.name : "Deuda"}</span>
+                    <p className="text-xs mt-1" style={{ color: C.faint }}>
+                      {Number(c.rate) > 0
+                        ? `Interés ${c.rate}% ${c.ratePeriod === "mensual" ? "mensual" : "anual"} · crece a diario`
+                        : "Sin interés"} · abónale con una transferencia
+                    </p>
+                  </div>
+                  <span className="font-mono text-sm shrink-0" style={{ color: bal > 0 ? C.red : C.green, fontVariantNumeric: "tabular-nums" }}>
+                    {money(bal)}
+                  </span>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Tarjetas de crédito: deuda, estado de cuenta y pago */}
       {creditCards.length > 0 && (
