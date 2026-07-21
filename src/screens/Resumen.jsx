@@ -301,31 +301,41 @@ export default function Resumen({ data, update }) {
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <div className="text-right">
-                      <p className="text-xs" style={{ color: C.faint }}>Deuda total</p>
-                      <span className="font-mono text-sm" style={{ color: debt > 0 ? C.red : C.green, fontVariantNumeric: "tabular-nums" }}>
-                        {money(debt)}
-                      </span>
-                    </div>
-                    <Btn kind="ghost" onClick={() => openPay(card, statement, debt)}>
-                      {payFor === card.id ? "Cancelar" : "Pagar"}
-                    </Btn>
+                  <div className="text-right shrink-0">
+                    <p className="text-xs" style={{ color: C.faint }}>Deuda total</p>
+                    <span className="font-mono text-sm" style={{ color: debt > 0 ? C.red : C.green, fontVariantNumeric: "tabular-nums" }}>
+                      {money(debt)}
+                    </span>
                   </div>
                 </div>
 
-                {statement && (
+                {statement ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
                     <div className="rounded-lg px-3 py-2" style={{ background: C.bg, border: `1px solid ${C.borderSoft}` }}>
                       <p className="text-xs" style={{ color: C.faint }}>Gasto del periodo (desde el {fmtDia(statement.lastCut)})</p>
                       <span className="font-mono text-sm" style={{ fontVariantNumeric: "tabular-nums" }}>{money(statement.periodSpend)}</span>
                     </div>
-                    <div className="rounded-lg px-3 py-2" style={{ background: C.bg, border: `1px solid ${C.borderSoft}` }}>
-                      <p className="text-xs" style={{ color: C.faint }}>Pago de este mes (saldo al corte)</p>
-                      <span className="font-mono text-sm" style={{ color: statement.toPay > 0 ? C.amber : C.green, fontVariantNumeric: "tabular-nums" }}>
-                        {money(statement.toPay)}
-                      </span>
+                    {/* El botón Pagar vive junto al pago del mes: eso es lo que se paga, no la deuda total */}
+                    <div className="rounded-lg px-3 py-2 flex items-center justify-between gap-3" style={{ background: C.bg, border: `1px solid ${C.borderSoft}` }}>
+                      <div>
+                        <p className="text-xs" style={{ color: C.faint }}>Pago de este mes (saldo al corte)</p>
+                        <span className="font-mono text-sm" style={{ color: statement.toPay > 0 ? C.amber : C.green, fontVariantNumeric: "tabular-nums" }}>
+                          {money(statement.toPay)}
+                        </span>
+                      </div>
+                      <Btn kind={statement.toPay > 0 ? "primary" : "ghost"} onClick={() => openPay(card, statement, debt)} style={{ padding: "6px 14px" }}>
+                        {payFor === card.id ? "Cancelar" : "Pagar"}
+                      </Btn>
                     </div>
+                  </div>
+                ) : (
+                  <div className="rounded-lg px-3 py-2 mt-3 flex items-center justify-between gap-3" style={{ background: C.bg, border: `1px solid ${C.borderSoft}` }}>
+                    <p className="text-xs" style={{ color: C.faint }}>
+                      Sin día de corte no se puede calcular el pago del mes; el pago se propone por la deuda total.
+                    </p>
+                    <Btn kind="ghost" onClick={() => openPay(card, statement, debt)} style={{ padding: "6px 14px" }}>
+                      {payFor === card.id ? "Cancelar" : "Pagar"}
+                    </Btn>
                   </div>
                 )}
 

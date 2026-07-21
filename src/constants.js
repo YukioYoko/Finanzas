@@ -21,5 +21,7 @@ export const seedCategories = [
   { id: "cat-nomina", name: "Nómina / Ingresos", freq: "mensual" },
 ];
 
+export const SUPPORT_EMAIL = "yukio.yokogawa141002@gmail.com";
+
 // Forma del estado global de la app
-export const EMPTY = { accounts: [], cards: [], categories: seedCategories, movements: [], inbox: [], recurring: [], theme: "dark" };
+export const EMPTY = { accounts: [], cards: [], categories: seedCategories, movements: [], inbox: [], recurring: [], theme: "dark", tourSeen: false };

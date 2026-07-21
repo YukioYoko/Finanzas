@@ -40,7 +40,8 @@ Pushing to `main` triggers `.github/workflows/build-apk.yml`, which builds the w
 - **`src/lib/notifications.js`** — the `NotificationInbox` native-plugin proxy and `scheduleCardReminders`.
 - **`src/components/ui.jsx`** — UI primitives: `Field`, `TextInput`, `Select`, `Btn`, `Chip`, `Amount`, `Card`, `SectionTitle`, `Empty`. Reuse these instead of writing raw `<input>`/`<button>` markup.
 - **`src/components/GraficaMensual.jsx`** — the 6-month income/expense grouped-column SVG chart (with table view).
-- **`src/screens/*.jsx`** — one file per tab (`Resumen`, `Cuentas`, `Movimientos`, `Fijos`, `Categorias`), each taking `{ data, update }` and calling `update(patch)` to merge a partial state patch into `data`. `Movimientos.jsx` also holds `InboxItem` and `MovEditor`; `Fijos.jsx` holds `FijoForm`.
+- **`src/components/Tour.jsx`** — the welcome tour overlay, shown on first launch (`data.tourSeen` flag) and replayable from Ajustes.
+- **`src/screens/*.jsx`** — one file per tab (`Resumen`, `Cuentas`, `Movimientos`, `Fijos`, `Categorias`), each taking `{ data, update }` and calling `update(patch)` to merge a partial state patch into `data`. `Movimientos.jsx` also holds `InboxItem` and `MovEditor`; `Fijos.jsx` holds `FijoForm`. `Ajustes.jsx` (opened via the ⚙ header button, not a tab) holds preferences, FAQ, support contact (`SUPPORT_EMAIL` in constants.js), and terms & conditions.
 
 ### Data model
 

@@ -10,6 +10,8 @@ import Cuentas from "./screens/Cuentas";
 import Movimientos from "./screens/Movimientos";
 import Fijos from "./screens/Fijos";
 import Categorias from "./screens/Categorias";
+import Ajustes from "./screens/Ajustes";
+import Tour from "./components/Tour";
 
 const STORAGE_KEY = "finanzas:data";
 
@@ -25,6 +27,7 @@ export default function FinanzasApp() {
   const [data, setData] = useState(null);
   const [tab, setTab] = useState("resumen");
   const [saveError, setSaveError] = useState(false);
+  const [showTour, setShowTour] = useState(false);
 
   // Cargar
   useEffect(() => {
@@ -126,15 +129,25 @@ export default function FinanzasApp() {
                 </p>
               )}
             </div>
-            <button
-              onClick={toggleTheme}
-              aria-label={mode === "dark" ? "Cambiar a tema claro" : "Cambiar a tema oscuro"}
-              className="rounded-full px-3 py-1.5 text-sm flex items-center gap-2 transition-opacity hover:opacity-85"
-              style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.muted }}
-            >
-              <span aria-hidden="true">{mode === "dark" ? "☀️" : "🌙"}</span>
-              <span className="hidden sm:inline">{mode === "dark" ? "Tema claro" : "Tema oscuro"}</span>
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={toggleTheme}
+                aria-label={mode === "dark" ? "Cambiar a tema claro" : "Cambiar a tema oscuro"}
+                className="rounded-full px-3 py-1.5 text-sm flex items-center gap-2 transition-opacity hover:opacity-85"
+                style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.muted }}
+              >
+                <span aria-hidden="true">{mode === "dark" ? "☀️" : "🌙"}</span>
+                <span className="hidden sm:inline">{mode === "dark" ? "Tema claro" : "Tema oscuro"}</span>
+              </button>
+              <button
+                onClick={() => setTab("ajustes")}
+                aria-label="Abrir ajustes"
+                className="rounded-full px-3 py-1.5 text-sm transition-opacity hover:opacity-85"
+                style={{ background: C.surface, border: `1px solid ${C.border}`, color: tab === "ajustes" ? C.accent : C.muted }}
+              >
+                <span aria-hidden="true">⚙️</span>
+              </button>
+            </div>
           </header>
 
           {/* Tabs */}
@@ -154,7 +167,15 @@ export default function FinanzasApp() {
           </nav>
 
           {TABS.map(({ id, Screen }) => (tab === id ? <Screen key={id} data={data} update={update} /> : null))}
+          {tab === "ajustes" && (
+            <Ajustes data={data} update={update} onBack={() => setTab("resumen")} onShowTour={() => setShowTour(true)} />
+          )}
         </div>
+
+        {/* Recorrido de bienvenida: primera vez, o cuando se pide desde Ajustes */}
+        {(showTour || !data.tourSeen) && (
+          <Tour onClose={() => { setShowTour(false); if (!data.tourSeen) update({ tourSeen: true }); }} />
+        )}
       </div>
     </ThemeContext.Provider>
   );
