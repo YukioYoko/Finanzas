@@ -1,0 +1,8 @@
+{
+  "appId": "com.yukioyoko.finanzas",
+  "appName": "Mis Finanzas",
+  "webDir": "dist",
+  "android": {
+    "allowMixedContent": false
+  }
+}
