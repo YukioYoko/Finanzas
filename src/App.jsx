@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useMemo, useContext, useRef, useCallback, createContext } from "react";
-import { Capacitor } from "@capacitor/core";
+import { Capacitor, registerPlugin } from "@capacitor/core";
 import { LocalNotifications } from "@capacitor/local-notifications";
+
+// Plugin nativo propio (android/…/NotificationInboxPlugin.java): lee las
+// notificaciones capturadas del celular para convertirlas en movimientos
+const NotificationInbox = registerPlugin("NotificationInbox");
 
 // ---------- Temas ----------
 const THEMES = {
@@ -96,7 +100,7 @@ const seedCategories = [
   { id: "cat-nomina", name: "Nómina / Ingresos", freq: "mensual" },
 ];
 
-const EMPTY = { accounts: [], cards: [], categories: seedCategories, movements: [], theme: "dark" };
+const EMPTY = { accounts: [], cards: [], categories: seedCategories, movements: [], inbox: [], recurring: [], theme: "dark" };
 
 // ---------- Componentes base ----------
 function Field({ label, children }) {
@@ -218,7 +222,7 @@ export default function FinanzasApp() {
         const res = await store.get("finanzas:data");
         if (res && res.value) {
           const parsed = JSON.parse(res.value);
-          setData(applyInterest({ ...EMPTY, ...parsed }));
+          setData(applyRecurring(applyInterest({ ...EMPTY, ...parsed })));
           return;
         }
       } catch (e) {
@@ -250,6 +254,34 @@ export default function FinanzasApp() {
     scheduleCardReminders(data.cards);
   }, [remindersKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Genera los cargos fijos vencidos cuando cambia la lista (p. ej. al crear uno con cobro hoy)
+  const recurringCount = data?.recurring?.length || 0;
+  useEffect(() => {
+    if (!data) return;
+    setData((d) => applyRecurring(d));
+  }, [recurringCount]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Importa las notificaciones capturadas del celular a la bandeja "Por confirmar"
+  const loaded = !!data;
+  useEffect(() => {
+    if (!loaded || !Capacitor.isNativePlatform()) return;
+    (async () => {
+      try {
+        const { items } = await NotificationInbox.drain();
+        if (!items || !items.length) return;
+        setData((d) => {
+          const existing = new Set((d.inbox || []).map((i) => i.id));
+          const parsed = items
+            .map((it) => parseCapturedNotification(it, d.cards))
+            .filter((p) => p && !existing.has(p.id));
+          return parsed.length ? { ...d, inbox: [...parsed, ...(d.inbox || [])] } : d;
+        });
+      } catch (e) {
+        // Plugin no disponible o error nativo: la app sigue sin bandeja
+      }
+    })();
+  }, [loaded]);
+
   const mode = data?.theme === "light" ? "light" : "dark";
   const C = THEMES[mode];
 
@@ -268,6 +300,7 @@ export default function FinanzasApp() {
     { id: "resumen", label: "Resumen" },
     { id: "cuentas", label: "Cuentas" },
     { id: "movimientos", label: "Movimientos" },
+    { id: "fijos", label: "Fijos" },
     { id: "categorias", label: "Categorías" },
   ];
 
@@ -320,6 +353,7 @@ export default function FinanzasApp() {
           {tab === "resumen" && <Resumen data={data} update={update} />}
           {tab === "cuentas" && <Cuentas data={data} update={update} />}
           {tab === "movimientos" && <Movimientos data={data} update={update} />}
+          {tab === "fijos" && <Fijos data={data} update={update} />}
           {tab === "categorias" && <Categorias data={data} update={update} />}
         </div>
       </div>
@@ -412,6 +446,97 @@ function creditStatement(card, movements, today = new Date()) {
 }
 
 const fmtDia = (d) => `${d.getDate()} ${MONTH_SHORT[d.getMonth()]}`;
+
+// ---------- Cargos fijos mensuales (suscripciones, servicios…) ----------
+const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+// Primera ocurrencia del día de cobro en o después de la fecha dada
+function firstOccurrenceOnOrAfter(dateStr, day) {
+  const from = new Date(dateStr + "T00:00:00");
+  const d = dateWithDay(from.getFullYear(), from.getMonth(), day);
+  return d >= from ? d : dateWithDay(from.getFullYear(), from.getMonth() + 1, day);
+}
+
+// Siguiente ocurrencia estrictamente después de la fecha dada
+function nextOccurrence(dateStr, day) {
+  const after = new Date(dateStr + "T00:00:00");
+  const d = dateWithDay(after.getFullYear(), after.getMonth(), day);
+  return d > after ? d : dateWithDay(after.getFullYear(), after.getMonth() + 1, day);
+}
+
+// Próximo cobro pendiente de un cargo fijo (null si ya terminó)
+function nextChargeOf(r) {
+  const day = clampDay(r.day);
+  if (!day) return null;
+  const cursor = r.lastApplied ? nextOccurrence(r.lastApplied, day) : firstOccurrenceOnOrAfter(r.createdAt, day);
+  if (r.endDate && cursor > new Date(r.endDate + "T00:00:00")) return null;
+  return cursor;
+}
+
+// Genera los movimientos vencidos de cada cargo fijo (corre al cargar y al editar la lista)
+function applyRecurring(data) {
+  const today = new Date(todayISO() + "T00:00:00");
+  let movements = data.movements;
+  let changed = false;
+  const recurring = (data.recurring || []).map((r) => {
+    const day = clampDay(r.day);
+    if (!day) return r;
+    const end = r.endDate ? new Date(r.endDate + "T00:00:00") : null;
+    let cursor = r.lastApplied ? nextOccurrence(r.lastApplied, day) : firstOccurrenceOnOrAfter(r.createdAt, day);
+    let last = r.lastApplied;
+    const generated = [];
+    while (cursor <= today && (!end || cursor <= end) && generated.length < 120) {
+      const dateStr = isoOf(cursor);
+      generated.push({
+        id: uid(),
+        cardId: r.cardId,
+        type: "gasto",
+        amount: Number(r.amount) || 0,
+        description: r.description,
+        categoryId: r.categoryId || null,
+        date: dateStr,
+        months: 1,
+        commission: 0,
+        recurring: true,
+        recurringId: r.id,
+      });
+      last = dateStr;
+      cursor = nextOccurrence(dateStr, day);
+    }
+    if (!generated.length) return r;
+    movements = [...generated, ...movements];
+    changed = true;
+    return { ...r, lastApplied: last };
+  });
+  return changed ? { ...data, recurring, movements } : data;
+}
+
+// ---------- Bandeja: notificaciones del banco → movimientos por confirmar ----------
+// Interpreta una notificación capturada: saca el monto, adivina la tarjeta por los
+// últimos 4 dígitos y el tipo por palabras clave. Si no encuentra la tarjeta, la
+// deja en blanco para que el usuario la elija, pero el monto siempre queda puesto.
+function parseCapturedNotification(item, cards) {
+  const text = `${item.title || ""} ${item.text || ""}`.trim();
+  const moneyMatch = text.match(/\$\s?(\d[\d,]*(?:\.\d{1,2})?)/);
+  if (!moneyMatch) return null;
+  const amount = parseFloat(moneyMatch[1].replace(/,/g, ""));
+  if (!amount || amount <= 0) return null;
+  const last4Match = text.match(/(?:terminaci[oó]n|term\.?|tarjeta|\*{2,}|·{2,}|x{2,})\s*[·*x]*\s*(\d{4})(?!\d)/i);
+  // Busca por los dígitos de la tarjeta física o de su tarjeta digital asociada
+  const card = last4Match
+    ? cards.find((c) => c.last4 === last4Match[1] || c.digitalLast4 === last4Match[1])
+    : null;
+  const isIncome = /dep[oó]sito|abono|recibiste|te envi[oó]|n[oó]mina|rendimiento/i.test(text);
+  const d = new Date(Number(item.time) || Date.now());
+  return {
+    id: item.id,
+    amount,
+    cardId: card ? card.id : "",
+    type: isIncome ? "ingreso" : "gasto",
+    date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
+    text: text.slice(0, 200),
+  };
+}
 
 // ---------- Notificaciones de corte y pago (solo en el APK de Android) ----------
 // Pide permiso y programa un aviso a las 9:00 del día de corte y del día de pago
@@ -1027,6 +1152,7 @@ function Cuentas({ data, update }) {
   const [cardName, setCardName] = useState("");
   const [cardType, setCardType] = useState("debito");
   const [cardLast4, setCardLast4] = useState("");
+  const [cardDigital4, setCardDigital4] = useState("");
   const [cardRate, setCardRate] = useState("");
   const [cardCutDay, setCardCutDay] = useState("");
   const [cardPayDay, setCardPayDay] = useState("");
@@ -1035,6 +1161,7 @@ function Cuentas({ data, update }) {
   const [newRate, setNewRate] = useState("");
   const [newCutDay, setNewCutDay] = useState("");
   const [newPayDay, setNewPayDay] = useState("");
+  const [newDigital4, setNewDigital4] = useState("");
 
   const addAccount = () => {
     if (!accName.trim()) return;
@@ -1081,8 +1208,11 @@ function Cuentas({ data, update }) {
       card.cutDay = clampDay(cardCutDay);
       card.payDay = clampDay(cardPayDay);
     }
+    if (cardType !== "ahorro" && cardDigital4) {
+      card.digitalLast4 = cardDigital4;
+    }
     update({ cards: [...cards, card] });
-    setCardName(""); setCardType("debito"); setCardLast4(""); setCardRate(""); setCardCutDay(""); setCardPayDay(""); setCardFormFor(null);
+    setCardName(""); setCardType("debito"); setCardLast4(""); setCardDigital4(""); setCardRate(""); setCardCutDay(""); setCardPayDay(""); setCardFormFor(null);
   };
 
   const deleteCard = (id) => {
@@ -1097,24 +1227,30 @@ function Cuentas({ data, update }) {
     setNewRate(card.rate != null ? String(card.rate) : "");
     setNewCutDay(clampDay(card.cutDay) ? String(card.cutDay) : "");
     setNewPayDay(clampDay(card.payDay) ? String(card.payDay) : "");
+    setNewDigital4(card.digitalLast4 || "");
   };
 
   const saveBalance = (card) => {
     const target = parseFloat(newBal);
     const patch = {};
+    const cardPatch = {};
     // Actualizar tasa si es caja de ahorro
     if (card.type === "ahorro") {
       const r = parseFloat(newRate) || 0;
-      if (r !== Number(card.rate)) {
-        patch.cards = cards.map((c) => (c.id === card.id ? { ...c, rate: r } : c));
-      }
+      if (r !== Number(card.rate)) cardPatch.rate = r;
     }
     // Actualizar días de corte y pago si es crédito
     if (card.type === "credito") {
       const cd = clampDay(newCutDay), pd = clampDay(newPayDay);
-      if (cd !== clampDay(card.cutDay) || pd !== clampDay(card.payDay)) {
-        patch.cards = cards.map((c) => (c.id === card.id ? { ...c, cutDay: cd, payDay: pd } : c));
-      }
+      if (cd !== clampDay(card.cutDay)) cardPatch.cutDay = cd;
+      if (pd !== clampDay(card.payDay)) cardPatch.payDay = pd;
+    }
+    // Tarjeta digital asociada (débito y crédito)
+    if (card.type === "debito" || card.type === "credito") {
+      if (newDigital4 !== (card.digitalLast4 || "")) cardPatch.digitalLast4 = newDigital4;
+    }
+    if (Object.keys(cardPatch).length) {
+      patch.cards = cards.map((c) => (c.id === card.id ? { ...c, ...cardPatch } : c));
     }
     // Ajustar saldo con un movimiento de ajuste (mantiene el historial cuadrado)
     if (!isNaN(target)) {
@@ -1200,7 +1336,7 @@ function Cuentas({ data, update }) {
                   {acc.excluded ? "Contabilizar" : "No contabilizar"}
                 </Btn>
                 {!isCash && (
-                  <Btn kind="ghost" onClick={() => { setCardFormFor(cardFormFor === acc.id ? null : acc.id); setCardName(""); setCardType("debito"); setCardLast4(""); setCardRate(""); setCardCutDay(""); setCardPayDay(""); }}>
+                  <Btn kind="ghost" onClick={() => { setCardFormFor(cardFormFor === acc.id ? null : acc.id); setCardName(""); setCardType("debito"); setCardLast4(""); setCardDigital4(""); setCardRate(""); setCardCutDay(""); setCardPayDay(""); }}>
                     {cardFormFor === acc.id ? "Cancelar" : "+ Tarjeta"}
                   </Btn>
                 )}
@@ -1230,6 +1366,11 @@ function Cuentas({ data, update }) {
                       <TextInput value={cardLast4} onChange={(e) => setCardLast4(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="1234" />
                     </Field>
                   )}
+                  {cardType !== "ahorro" && (
+                    <Field label="Tarjeta digital (últimos 4, opcional)">
+                      <TextInput value={cardDigital4} onChange={(e) => setCardDigital4(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="5678" />
+                    </Field>
+                  )}
                   {cardType === "credito" && (
                     <>
                       <Field label="Día de corte (1–31)">
@@ -1241,6 +1382,11 @@ function Cuentas({ data, update }) {
                     </>
                   )}
                 </div>
+                {cardType !== "ahorro" && (
+                  <p className="text-xs mt-2" style={{ color: C.faint }}>
+                    Si tu banco te dio una tarjeta digital con otra terminación, agrégala: los cargos hechos con ella se asignarán a esta misma tarjeta y cuenta.
+                  </p>
+                )}
                 {cardType === "ahorro" && (
                   <p className="text-xs mt-2" style={{ color: C.faint }}>
                     Los rendimientos se abonan automáticamente cada día con interés compuesto según el porcentaje.
@@ -1279,6 +1425,7 @@ function Cuentas({ data, update }) {
                           {isCredit && clampDay(card.cutDay) && (
                             <Chip color={C.faint}>Corte {card.cutDay}{clampDay(card.payDay) ? ` · Pago ${card.payDay}` : ""}</Chip>
                           )}
+                          {card.digitalLast4 && <Chip color={C.blue}>Digital ····{card.digitalLast4}</Chip>}
                           {card.excluded && <Chip color={C.faint}>No contabilizada</Chip>}
                         </div>
                         <div className="flex items-center gap-3 shrink-0">
@@ -1321,6 +1468,11 @@ function Cuentas({ data, update }) {
                                 </Field>
                               </>
                             )}
+                            {!isSavings && !isCashCard && (
+                              <Field label="Tarjeta digital (últimos 4, opcional)">
+                                <TextInput value={newDigital4} onChange={(e) => setNewDigital4(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="5678" />
+                              </Field>
+                            )}
                           </div>
                           <p className="text-xs mt-2" style={{ color: C.faint }}>
                             La diferencia se registra como un movimiento de "Ajuste de saldo" para que el historial siga cuadrando.
@@ -1342,11 +1494,113 @@ function Cuentas({ data, update }) {
   );
 }
 
+// Un cargo detectado en una notificación, pendiente de que el usuario lo complete
+function InboxItem({ item, data, onConfirm, onDiscard }) {
+  const C = useTheme();
+  const { accounts, cards, categories } = data;
+  const initialCard = cards.find((c) => c.id === item.cardId);
+  const [accountId, setAccountId] = useState(initialCard ? initialCard.accountId : "");
+  const [cardId, setCardId] = useState(item.cardId || "");
+  const [type, setType] = useState(item.type || "gasto");
+  const [amount, setAmount] = useState(String(item.amount));
+  const [date, setDate] = useState(item.date);
+  const [description, setDescription] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+  const [error, setError] = useState("");
+  const accCards = cards.filter((c) => c.accountId === accountId);
+
+  const confirm = () => {
+    const amt = parseFloat(amount);
+    if (!cardId) return setError("Elige la cuenta y la tarjeta.");
+    if (!amt || amt <= 0) return setError("Escribe un monto mayor a cero.");
+    if (!categoryId) return setError("Elige una categoría.");
+    onConfirm(item, { cardId, type, amount: amt, date, description: description.trim(), categoryId });
+  };
+
+  return (
+    <Card style={{ borderColor: C.amber }}>
+      <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Chip color={C.amber} bg={C.amberSoft}>Detectado en notificación</Chip>
+          <Amount value={parseFloat(amount) || 0} sign={type === "gasto" ? "-" : "+"} size="text-sm" />
+        </div>
+        <Btn kind="danger" onClick={() => onDiscard(item)} style={{ padding: "4px 8px" }}>Descartar</Btn>
+      </div>
+      <p className="text-xs mb-3" style={{ color: C.faint }}>{item.text}</p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <Field label="Tipo">
+          <Select value={type} onChange={(e) => setType(e.target.value)}>
+            <option value="gasto">Gasto</option>
+            <option value="ingreso">Ingreso</option>
+          </Select>
+        </Field>
+        <Field label="Cuenta">
+          <Select value={accountId} onChange={(e) => { setAccountId(e.target.value); setCardId(""); }}>
+            <option value="">— Elegir cuenta —</option>
+            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
+          </Select>
+        </Field>
+        <Field label="Tarjeta">
+          <Select value={cardId} onChange={(e) => setCardId(e.target.value)} disabled={!accountId}>
+            <option value="">{accountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
+            {accCards.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""}</option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Monto (MXN)">
+          <TextInput type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
+        </Field>
+        <Field label="Fecha">
+          <TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </Field>
+        <Field label="Categoría">
+          <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+            <option value="">— Elegir categoría —</option>
+            {FREQS.map((f) => (
+              <optgroup key={f.id} label={f.label}>
+                {categories.filter((c) => c.freq === f.id).map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </optgroup>
+            ))}
+          </Select>
+        </Field>
+        <div className="sm:col-span-3">
+          <Field label="Descripción">
+            <TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ej. Súper, gasolina…" />
+          </Field>
+        </div>
+      </div>
+      {error && <p className="text-xs mt-2" style={{ color: C.red }}>{error}</p>}
+      <div className="mt-3">
+        <Btn onClick={confirm}>Confirmar movimiento</Btn>
+      </div>
+    </Card>
+  );
+}
+
 // ---------- Movimientos ----------
 function Movimientos({ data, update }) {
   const C = useTheme();
   const { accounts, cards, categories, movements } = data;
+  const inbox = data.inbox || [];
   const [show, setShow] = useState(false);
+
+  // Acceso a notificaciones: null = no aplica (web) o desconocido; false = falta concederlo
+  const [inboxEnabled, setInboxEnabled] = useState(null);
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    NotificationInbox.isEnabled().then((r) => setInboxEnabled(!!r.enabled)).catch(() => {});
+  }, []);
+
+  const confirmInbox = (item, fields) => {
+    update({
+      movements: [{ id: uid(), months: 1, commission: 0, ...fields }, ...movements],
+      inbox: inbox.filter((i) => i.id !== item.id),
+    });
+  };
+  const discardInbox = (item) => update({ inbox: inbox.filter((i) => i.id !== item.id) });
 
   const [type, setType] = useState("gasto");
   const [accountId, setAccountId] = useState("");
@@ -1433,6 +1687,31 @@ function Movimientos({ data, update }) {
       <SectionTitle right={<Btn onClick={() => { setShow((v) => !v); if (!show) resetForm(); }}>{show ? "Cancelar" : "+ Nuevo movimiento"}</Btn>}>
         Movimientos
       </SectionTitle>
+
+      {inboxEnabled === false && (
+        <Card className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm">Registra tus cargos automáticamente</p>
+            <p className="text-xs mt-1" style={{ color: C.faint }}>
+              Permite que Mis Finanzas lea las notificaciones del celular para detectar cargos y depósitos del banco; aquí te aparecerán listos para confirmar. Todo se procesa en tu teléfono, nada se envía fuera.
+            </p>
+          </div>
+          <Btn kind="ghost" onClick={() => NotificationInbox.openSettings().catch(() => {})}>Permitir acceso</Btn>
+        </Card>
+      )}
+
+      {inbox.length > 0 && (
+        <div>
+          <h3 className="text-xs uppercase tracking-widest mb-2" style={{ color: C.amber }}>
+            Por confirmar ({inbox.length})
+          </h3>
+          <div className="space-y-2">
+            {inbox.map((item) => (
+              <InboxItem key={item.id} item={item} data={data} onConfirm={confirmInbox} onDiscard={discardInbox} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {show && (
         <Card>
@@ -1580,6 +1859,7 @@ function Movimientos({ data, update }) {
                     {m.interest && <Chip color={C.green} bg={C.accentSoft}>Rendimiento automático</Chip>}
                     {m.adjust && <Chip color={C.faint}>Ajuste manual</Chip>}
                     {m.transfer && <Chip color={C.blue}>Transferencia</Chip>}
+                    {m.recurring && <Chip color={C.accent} bg={C.accentSoft}>Cargo fijo</Chip>}
                     {hasMSI && <Chip color={C.amber} bg={C.amberSoft}>{m.months} MSI</Chip>}
                     {Number(m.commission) > 0 && <Chip color={C.red}>Comisión {money(m.commission)}</Chip>}
                   </div>
@@ -1597,6 +1877,166 @@ function Movimientos({ data, update }) {
                     )}
                   </div>
                   <Btn kind="danger" onClick={() => del(m.id)} style={{ padding: "4px 8px" }}>✕</Btn>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- Cargos fijos ----------
+function Fijos({ data, update }) {
+  const C = useTheme();
+  const { accounts, cards, categories } = data;
+  const recurring = data.recurring || [];
+  const [show, setShow] = useState(false);
+  const [description, setDescription] = useState("");
+  const [amount, setAmount] = useState("");
+  const [accountId, setAccountId] = useState("");
+  const [cardId, setCardId] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+  const [day, setDay] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [error, setError] = useState("");
+
+  const accCards = cards.filter((c) => c.accountId === accountId);
+  const cardById = useMemo(() => Object.fromEntries(cards.map((c) => [c.id, c])), [cards]);
+  const catById = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c])), [categories]);
+
+  const activos = recurring.filter((r) => nextChargeOf(r) !== null);
+  const totalMensual = activos.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+
+  const resetForm = () => {
+    setDescription(""); setAmount(""); setAccountId(""); setCardId("");
+    setCategoryId(""); setDay(""); setEndDate(""); setError("");
+  };
+
+  const add = () => {
+    if (!description.trim()) return setError("Escribe una descripción (ej. Netflix, Spotify…).");
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0) return setError("Escribe un monto mayor a cero.");
+    if (!cardId) return setError("Elige la cuenta y tarjeta donde se cobra.");
+    if (!categoryId) return setError("Elige una categoría.");
+    const d = clampDay(day);
+    if (!d) return setError("Escribe el día de cobro (1–31).");
+    if (endDate && endDate < todayISO()) return setError("La fecha de fin ya pasó.");
+    const item = {
+      id: uid(),
+      description: description.trim(),
+      amount: amt,
+      cardId,
+      categoryId,
+      day: d,
+      endDate: endDate || null,
+      createdAt: todayISO(),
+      lastApplied: null,
+    };
+    update({ recurring: [...recurring, item] });
+    resetForm();
+    setShow(false);
+  };
+
+  const del = (r) => {
+    if (!window.confirm("Se dejará de generar este cargo. Los movimientos ya creados se conservan. ¿Eliminar?")) return;
+    update({ recurring: recurring.filter((x) => x.id !== r.id) });
+  };
+
+  return (
+    <div className="space-y-4">
+      <SectionTitle right={<Btn onClick={() => { setShow((v) => !v); if (!show) resetForm(); }}>{show ? "Cancelar" : "+ Nuevo cargo fijo"}</Btn>}>
+        Cargos fijos mensuales
+      </SectionTitle>
+
+      {activos.length > 0 && (
+        <Card className="flex items-center justify-between">
+          <p className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>Total fijo al mes</p>
+          <Amount value={totalMensual} sign="-" size="text-xl" />
+        </Card>
+      )}
+
+      {show && (
+        <Card>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="Descripción">
+              <TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ej. Netflix, Spotify, gimnasio…" />
+            </Field>
+            <Field label="Monto mensual (MXN)">
+              <TextInput type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" />
+            </Field>
+            <Field label="Cuenta">
+              <Select value={accountId} onChange={(e) => { setAccountId(e.target.value); setCardId(""); }}>
+                <option value="">— Elegir cuenta —</option>
+                {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
+              </Select>
+            </Field>
+            <Field label="Tarjeta donde se cobra">
+              <Select value={cardId} onChange={(e) => setCardId(e.target.value)} disabled={!accountId}>
+                <option value="">{accountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
+                {accCards.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}{c.last4 ? ` ····${c.last4}` : ""} · {c.type === "credito" ? "Crédito" : c.type === "ahorro" ? "Caja de ahorro" : c.type === "efectivo" ? "Efectivo" : "Débito"}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Categoría">
+              <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+                <option value="">— Elegir categoría —</option>
+                {FREQS.map((f) => (
+                  <optgroup key={f.id} label={f.label}>
+                    {categories.filter((c) => c.freq === f.id).map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Día de cobro (1–31)">
+              <TextInput type="number" min="1" max="31" value={day} onChange={(e) => setDay(e.target.value)} placeholder="Ej. 16" />
+            </Field>
+            <Field label="Fecha de fin (opcional)">
+              <TextInput type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            </Field>
+          </div>
+          <p className="text-xs mt-2" style={{ color: C.faint }}>
+            El gasto se registra automáticamente cada mes en el día de cobro. Si el mes no tiene ese día, se usa el último día del mes. Con fecha de fin, se deja de cobrar después de esa fecha.
+          </p>
+          {error && <p className="text-xs mt-3" style={{ color: C.red }}>{error}</p>}
+          <div className="mt-4">
+            <Btn onClick={add}>Guardar cargo fijo</Btn>
+          </div>
+        </Card>
+      )}
+
+      {recurring.length === 0 && !show ? (
+        <Empty>Sin cargos fijos. Agrega tus suscripciones y servicios con "+ Nuevo cargo fijo" y se registrarán solos cada mes.</Empty>
+      ) : (
+        <div className="space-y-2">
+          {recurring.map((r) => {
+            const card = cardById[r.cardId];
+            const cat = catById[r.categoryId];
+            const next = nextChargeOf(r);
+            return (
+              <Card key={r.id} className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm truncate">{r.description}</span>
+                    {cat && <Chip>{cat.name}</Chip>}
+                    <Chip color={C.faint}>Cada día {clampDay(r.day)}</Chip>
+                    {r.endDate && <Chip color={C.amber} bg={C.amberSoft}>Hasta {r.endDate}</Chip>}
+                    {!next && <Chip color={C.faint}>Finalizado</Chip>}
+                  </div>
+                  <p className="text-xs mt-1" style={{ color: C.faint }}>
+                    {card ? cardLabel(card, accounts) : "Tarjeta eliminada"}
+                    {next && <> · próximo cobro: {fmtDia(next)}</>}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <Amount value={Number(r.amount) || 0} sign="-" size="text-sm" />
+                  <Btn kind="danger" onClick={() => del(r)} style={{ padding: "4px 8px" }}>✕</Btn>
                 </div>
               </Card>
             );

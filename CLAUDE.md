@@ -33,17 +33,18 @@ The entire application lives in a single file: `src/App.jsx` (~1150 lines). `src
 
 1. **Theming** — `THEMES.dark` / `THEMES.light` color tokens, exposed via `ThemeContext` / `useTheme()`. Every component reads colors from `useTheme()` rather than Tailwind color classes, since Tailwind is only used for layout (flex/grid/spacing), not color.
 2. **UI primitives** — `Field`, `TextInput`, `Select`, `Btn`, `Chip`, `Amount`, `Card`, `SectionTitle`, `Empty`. Reuse these instead of writing raw `<input>`/`<button>` markup.
-3. **App shell** (`FinanzasApp`) — owns the single top-level `data` state object, loads/saves it, and renders a tab bar switching between four screens: Resumen, Cuentas, Movimientos, Categorías.
+3. **App shell** (`FinanzasApp`) — owns the single top-level `data` state object, loads/saves it, and renders a tab bar switching between five screens: Resumen, Cuentas, Movimientos, Fijos, Categorías.
 4. **Data helpers** — pure functions (`cardLabel`, `movTotal`, `balanceOfCard`, `applyInterest`) that derive balances and interest from the raw `movements` array. These are the source of truth for any money math; screens never compute balances independently.
-5. **Screen components** — `Resumen`, `Cuentas`, `Movimientos`, `Categorias`, each taking `{ data, update }` and calling `update(patch)` to merge a partial state patch into `data`.
+5. **Screen components** — `Resumen`, `Cuentas`, `Movimientos`, `Fijos`, `Categorias`, each taking `{ data, update }` and calling `update(patch)` to merge a partial state patch into `data`.
 
 ### Data model
 
 A single object (shape defined by `EMPTY`) holds everything:
 - `accounts`: bank or cash accounts (can be `excluded` from totals)
-- `cards`: belong to an account; `type` is `debito`, `credito` (has optional `cutDay`/`payDay` statement days 1–31), `ahorro` (savings, has `rate` % and `lastAccrual`), or `efectivo` (auto-created for cash accounts)
+- `cards`: belong to an account; `type` is `debito`, `credito` (has optional `cutDay`/`payDay` statement days 1–31), `ahorro` (savings, has `rate` % and `lastAccrual`), or `efectivo` (auto-created for cash accounts). Debit/credit cards may also carry `digitalLast4` — the last 4 digits of an associated digital card, used (alongside `last4`) to match captured notifications to the card
 - `categories`: each has a `freq` of `mensual` / `anual` / `esporadico` (drives how Resumen groups spending)
-- `movements`: the append-only transaction log — `type` (`gasto`/`ingreso`), `amount`, `commission`, `months` (>1 means MSI/installments), `categoryId`, `cardId`, `date`, and flags for system/special entries: `interest` (savings yield), `adjust` (balance edits), `transfer` + `transferId` (two-leg transfers between cards)
+- `movements`: the append-only transaction log — `type` (`gasto`/`ingreso`), `amount`, `commission`, `months` (>1 means MSI/installments), `categoryId`, `cardId`, `date`, and flags for system/special entries: `interest` (savings yield), `adjust` (balance edits), `transfer` + `transferId` (two-leg transfers between cards), `recurring` + `recurringId` (auto-generated monthly charges)
+- `recurring`: monthly fixed charges (subscriptions) — `description`, `amount`, `cardId`, `categoryId`, `day` (charge day 1–31), optional `endDate`, `createdAt`, `lastApplied`. `applyRecurring()` runs on load and when the list changes, generating overdue `gasto` movements (flagged `recurring`) up to today; generated movements count as normal spending in every stat, and deleting a recurring item keeps its past movements. Managed in the "Fijos" tab
 - `theme`: `"dark"` or `"light"`
 
 Everything else (card balances, credit debt, savings totals, monthly/annual spend groupings, MSI schedules, credit statements) is derived on the fly from `movements` — there are no stored running balances. Balance edits in the UI don't mutate a balance field; they compute a diff and append a synthetic `adjust` movement so the ledger stays internally consistent.
@@ -55,6 +56,14 @@ Everything else (card balances, credit debt, savings totals, monthly/annual spen
 ### Persistence
 
 The `store` object (`src/App.jsx`) abstracts storage: it uses `window.storage` if present (Claude/sandboxed environments), otherwise falls back to `localStorage` under the key `finanzas:data`. Data round-trips through `JSON.stringify`/`JSON.parse` on every change (`useEffect` on `data`).
+
+### Notification inbox (auto-captured charges)
+
+Android-only feature with custom native code in `android/app/src/main/java/com/yukioyoko/finanzas/`:
+- `NotificationCaptureService` (a `NotificationListenerService`, requires the user to grant "Notification access" in system settings) captures any device notification containing a money amount into a local JSON file.
+- `NotificationInboxPlugin` (registered in `MainActivity`) bridges to JS as the `NotificationInbox` plugin with `isEnabled()`, `openSettings()`, and `drain()` (returns captured items and clears the file).
+
+On the JS side (`registerPlugin("NotificationInbox")` in src/App.jsx), a load-time effect drains captures into `data.inbox`; `parseCapturedNotification` extracts the amount, guesses the card by last-4 digits (left blank when no match) and the type by keywords. The Movimientos tab shows an enable banner when access isn't granted, and a "Por confirmar" list where the user completes description/category (and card if blank) to convert an inbox item into a real movement, or discards it. `data.inbox` persists with the rest of the state.
 
 ### Notifications
 
