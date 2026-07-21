@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useMemo, useContext, createContext } from "react";
+import React, { useState, useEffect, useMemo, useContext, useRef, useCallback, createContext } from "react";
+import { Capacitor } from "@capacitor/core";
+import { LocalNotifications } from "@capacitor/local-notifications";
 
 // ---------- Temas ----------
 const THEMES = {
@@ -20,6 +22,9 @@ const THEMES = {
     green: "#74D3A6",
     blue: "#82BEE6",
     chipBg: "rgba(255,255,255,0.06)",
+    // Colores de serie para gráficas, validados para daltonismo sobre `surface`
+    chartGasto: "#C64A39",
+    chartIngreso: "#44A778",
   },
   light: {
     bg: "#F5F7F4",
@@ -39,6 +44,8 @@ const THEMES = {
     green: "#2E9E77",
     blue: "#3E7FB8",
     chipBg: "rgba(0,0,0,0.04)",
+    chartGasto: "#A63E30",
+    chartIngreso: "#3EA373",
   },
 };
 
@@ -60,6 +67,7 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
 const MONTH_NAMES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+const MONTH_SHORT = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
 
 // Almacenamiento: usa window.storage dentro de Claude, o localStorage en el navegador
 const store = {
@@ -233,6 +241,15 @@ export default function FinanzasApp() {
     })();
   }, [data]);
 
+  // Recordatorios de corte y pago: reprograma al arrancar y cuando cambian las tarjetas de crédito
+  const remindersKey = data
+    ? JSON.stringify(data.cards.filter((c) => c.type === "credito").map((c) => [c.id, c.name, c.last4, c.cutDay, c.payDay]))
+    : "";
+  useEffect(() => {
+    if (!data) return;
+    scheduleCardReminders(data.cards);
+  }, [remindersKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const mode = data?.theme === "light" ? "light" : "dark";
   const C = THEMES[mode];
 
@@ -300,7 +317,7 @@ export default function FinanzasApp() {
             ))}
           </nav>
 
-          {tab === "resumen" && <Resumen data={data} />}
+          {tab === "resumen" && <Resumen data={data} update={update} />}
           {tab === "cuentas" && <Cuentas data={data} update={update} />}
           {tab === "movimientos" && <Movimientos data={data} update={update} />}
           {tab === "categorias" && <Categorias data={data} update={update} />}
@@ -325,6 +342,132 @@ function balanceOfCard(card, movements) {
   const g = movements.filter((m) => m.cardId === card.id && m.type === "gasto").reduce((s, m) => s + movTotal(m), 0);
   const p = movements.filter((m) => m.cardId === card.id && m.type === "ingreso").reduce((s, m) => s + movTotal(m), 0);
   return card.type === "credito" ? g - p : p - g;
+}
+
+// ---------- Corte y pago de tarjetas de crédito ----------
+const clampDay = (v) => { const n = parseInt(v, 10); return n >= 1 && n <= 31 ? n : null; };
+
+// Fecha con el día pedido dentro del mes (en meses cortos se recorre al último día)
+function dateWithDay(year, month, day) {
+  const last = new Date(year, month + 1, 0).getDate();
+  return new Date(year, month, Math.min(day, last));
+}
+
+// Último corte en o antes de `today`
+function lastCutDate(cutDay, today) {
+  const d = dateWithDay(today.getFullYear(), today.getMonth(), cutDay);
+  return d <= today ? d : dateWithDay(today.getFullYear(), today.getMonth() - 1, cutDay);
+}
+
+// Cuántos cortes han pasado desde la compra (inclusive) hasta lastCut
+function cutsSince(dateStr, cutDay, lastCut) {
+  const purchase = new Date(dateStr + "T00:00:00");
+  let y = purchase.getFullYear(), mo = purchase.getMonth(), count = 0;
+  for (let i = 0; i < 1200; i++) {
+    const cut = dateWithDay(y, mo, cutDay);
+    if (cut > lastCut) break;
+    if (cut >= purchase) count++;
+    mo++; if (mo > 11) { mo = 0; y++; }
+  }
+  return count;
+}
+
+// Estado de cuenta de una tarjeta de crédito:
+// - toPay: lo exigible este mes = cargos devengados al corte − todos los pagos.
+//   En MSI solo devengan las mensualidades cuyos cortes ya pasaron.
+// - periodSpend: gasto del periodo actual (compras después del corte; en MSI, la mensualidad próxima)
+// - dueDate: fecha límite de pago siguiente al corte
+function creditStatement(card, movements, today = new Date()) {
+  const cutDay = clampDay(card.cutDay);
+  if (!cutDay) return null;
+  const lastCut = lastCutDate(cutDay, today);
+  let accruedAtCut = 0, periodSpend = 0, paid = 0;
+  for (const m of movements) {
+    if (m.cardId !== card.id) continue;
+    const total = movTotal(m);
+    if (m.type === "ingreso") { paid += total; continue; }
+    const monthsN = Number(m.months) || 1;
+    if (monthsN > 1) {
+      const due = Math.min(cutsSince(m.date, cutDay, lastCut), monthsN);
+      accruedAtCut += (total / monthsN) * due;
+      if (due < monthsN) periodSpend += total / monthsN;
+    } else if (new Date(m.date + "T00:00:00") <= lastCut) {
+      accruedAtCut += total;
+    } else {
+      periodSpend += total;
+    }
+  }
+  const payDay = clampDay(card.payDay);
+  let dueDate = null;
+  if (payDay) {
+    dueDate = dateWithDay(lastCut.getFullYear(), lastCut.getMonth(), payDay);
+    if (dueDate <= lastCut) dueDate = dateWithDay(lastCut.getFullYear(), lastCut.getMonth() + 1, payDay);
+  }
+  return {
+    lastCut,
+    toPay: Math.max(Math.round((accruedAtCut - paid) * 100) / 100, 0),
+    periodSpend: Math.round(periodSpend * 100) / 100,
+    dueDate,
+  };
+}
+
+const fmtDia = (d) => `${d.getDate()} ${MONTH_SHORT[d.getMonth()]}`;
+
+// ---------- Notificaciones de corte y pago (solo en el APK de Android) ----------
+// Pide permiso y programa un aviso a las 9:00 del día de corte y del día de pago
+// de cada tarjeta de crédito (las próximas 2 fechas de cada una). Se reprograma
+// todo en cada arranque y cada vez que cambian las tarjetas.
+async function scheduleCardReminders(cards) {
+  if (!Capacitor.isNativePlatform()) return;
+  try {
+    let perm = await LocalNotifications.checkPermissions();
+    if (perm.display === "prompt" || perm.display === "prompt-with-rationale") {
+      perm = await LocalNotifications.requestPermissions();
+    }
+    if (perm.display !== "granted") return;
+
+    const pending = await LocalNotifications.getPending();
+    if (pending.notifications.length) await LocalNotifications.cancel(pending);
+
+    const now = new Date();
+    const nextDates = (day, count) => {
+      const out = [];
+      for (let i = 0; out.length < count && i < count + 2; i++) {
+        const d = dateWithDay(now.getFullYear(), now.getMonth() + i, day);
+        d.setHours(9, 0, 0, 0);
+        if (d > now) out.push(d);
+      }
+      return out;
+    };
+
+    const notifications = [];
+    let id = 1;
+    for (const card of cards) {
+      if (card.type !== "credito") continue;
+      const label = `${card.name}${card.last4 ? " ····" + card.last4 : ""}`;
+      const cutDay = clampDay(card.cutDay);
+      const payDay = clampDay(card.payDay);
+      for (const at of cutDay ? nextDates(cutDay, 2) : []) {
+        notifications.push({
+          id: id++,
+          title: "Corte de tarjeta",
+          body: `Hoy es la fecha de corte de tu tarjeta ${label}.`,
+          schedule: { at, allowWhileIdle: true },
+        });
+      }
+      for (const at of payDay ? nextDates(payDay, 2) : []) {
+        notifications.push({
+          id: id++,
+          title: "Pago de tarjeta",
+          body: `Hoy es la fecha límite de pago de tu tarjeta ${label}. Abre la app para ver cuánto pagar.`,
+          schedule: { at, allowWhileIdle: true },
+        });
+      }
+    }
+    if (notifications.length) await LocalNotifications.schedule({ notifications });
+  } catch (e) {
+    // Sin plugin o sin permiso: la app funciona igual, solo sin recordatorios
+  }
 }
 
 // Genera automáticamente los rendimientos de las cajas de ahorro (interés compuesto diario)
@@ -367,10 +510,176 @@ function applyInterest(data) {
   return changed ? { ...data, cards, movements } : data;
 }
 
+// ---------- Gráfica de gastos e ingresos por mes ----------
+function useContainerWidth() {
+  const [width, setWidth] = useState(0);
+  const roRef = useRef(null);
+  const ref = useCallback((node) => {
+    if (roRef.current) { roRef.current.disconnect(); roRef.current = null; }
+    if (node) {
+      const ro = new ResizeObserver((entries) => setWidth(entries[0].contentRect.width));
+      ro.observe(node);
+      roRef.current = ro;
+    }
+  }, []);
+  return [ref, width];
+}
+
+// Redondea el tope del eje a un número limpio (paso 1 / 2 / 2.5 / 5 × 10^n, 4 divisiones)
+function niceScale(maxValue) {
+  if (maxValue <= 0) return { max: 4, step: 1 };
+  const raw = maxValue / 4;
+  const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+  const f = raw / pow;
+  const step = (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * pow;
+  return { max: step * 4, step };
+}
+
+const tickLabel = (v) => (v >= 1000 ? `$${+(v / 1000).toFixed(1)}k` : `$${v}`);
+
+function GraficaMensual({ counted }) {
+  const C = useTheme();
+  const [containerRef, width] = useContainerWidth();
+  const [vista, setVista] = useState("grafica");
+  const [sel, setSel] = useState(5); // mes actual
+
+  const now = new Date();
+  const meses = useMemo(() => {
+    return Array.from({ length: 6 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const sum = (type) => counted
+        .filter((m) => m.type === type && !m.adjust && !m.transfer && m.date.startsWith(key))
+        .reduce((s, m) => s + movTotal(m), 0);
+      return { key, label: MONTH_SHORT[d.getMonth()], year: d.getFullYear(), gastos: sum("gasto"), ingresos: sum("ingreso") };
+    });
+  }, [counted]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const hayDatos = meses.some((m) => m.gastos > 0 || m.ingresos > 0);
+  const { max: yMax, step } = niceScale(Math.max(...meses.map((m) => Math.max(m.gastos, m.ingresos))));
+  const ticks = [0, 1, 2, 3, 4].map((i) => i * step);
+
+  // Geometría
+  const padL = 44, padR = 8, padT = 8, plotH = 180, labelH = 24;
+  const svgH = padT + plotH + labelH;
+  const plotW = Math.max(width - padL - padR, 0);
+  const band = plotW / 6;
+  const barW = Math.max(Math.min(24, (band - 18) / 2), 4);
+  const baseY = padT + plotH;
+  const yOf = (v) => baseY - (v / yMax) * plotH;
+
+  const selMes = meses[sel];
+
+  const Swatch = ({ color }) => (
+    <span aria-hidden="true" className="inline-block rounded-sm" style={{ width: 10, height: 10, background: color }} />
+  );
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        {/* Leyenda */}
+        <div className="flex items-center gap-4 text-xs" style={{ color: C.muted }}>
+          <span className="flex items-center gap-1.5"><Swatch color={C.chartGasto} /> Gastos</span>
+          <span className="flex items-center gap-1.5"><Swatch color={C.chartIngreso} /> Ingresos</span>
+        </div>
+        <Btn kind="ghost" style={{ padding: "4px 10px" }} onClick={() => setVista((v) => (v === "grafica" ? "tabla" : "grafica"))}>
+          {vista === "grafica" ? "Ver tabla" : "Ver gráfica"}
+        </Btn>
+      </div>
+
+      {!hayDatos ? (
+        <Empty>Sin movimientos en los últimos 6 meses.</Empty>
+      ) : vista === "tabla" ? (
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>
+              <th className="text-left py-1.5 font-normal">Mes</th>
+              <th className="text-right py-1.5 font-normal">Gastos</th>
+              <th className="text-right py-1.5 font-normal">Ingresos</th>
+            </tr>
+          </thead>
+          <tbody>
+            {meses.map((m) => (
+              <tr key={m.key} style={{ borderTop: `1px solid ${C.borderSoft}` }}>
+                <td className="py-1.5" style={{ color: C.muted }}>{m.label} {m.year}</td>
+                <td className="py-1.5 text-right font-mono" style={{ fontVariantNumeric: "tabular-nums" }}>{money(m.gastos)}</td>
+                <td className="py-1.5 text-right font-mono" style={{ fontVariantNumeric: "tabular-nums" }}>{money(m.ingresos)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <div ref={containerRef}>
+          {width > 0 && (
+            <svg width={width} height={svgH} role="img" aria-label="Gráfica de gastos e ingresos por mes de los últimos 6 meses">
+              <clipPath id="gm-plot">
+                <rect x={padL} y={padT} width={plotW} height={plotH} />
+              </clipPath>
+              {/* Rejilla y ticks del eje Y */}
+              {ticks.map((t) => (
+                <g key={t}>
+                  <line x1={padL} x2={padL + plotW} y1={yOf(t)} y2={yOf(t)} stroke={t === 0 ? C.border : C.borderSoft} strokeWidth="1" />
+                  <text x={padL - 6} y={yOf(t) + 3.5} textAnchor="end" fontSize="10" fill={C.faint} style={{ fontVariantNumeric: "tabular-nums" }}>
+                    {tickLabel(t)}
+                  </text>
+                </g>
+              ))}
+              {/* Columnas: extremo superior redondeado, base cuadrada vía clip */}
+              <g clipPath="url(#gm-plot)">
+                {meses.map((m, i) => {
+                  const x0 = padL + i * band + (band - (barW * 2 + 2)) / 2;
+                  const dim = sel === i ? 0.8 : 1;
+                  return (
+                    <g key={m.key} opacity={dim}>
+                      {m.gastos > 0 && <rect x={x0} y={yOf(m.gastos)} width={barW} height={baseY - yOf(m.gastos) + 4} rx="4" fill={C.chartGasto} />}
+                      {m.ingresos > 0 && <rect x={x0 + barW + 2} y={yOf(m.ingresos)} width={barW} height={baseY - yOf(m.ingresos) + 4} rx="4" fill={C.chartIngreso} />}
+                    </g>
+                  );
+                })}
+              </g>
+              {/* Etiquetas de mes y zonas de toque (más grandes que las marcas) */}
+              {meses.map((m, i) => (
+                <g key={m.key}>
+                  <text x={padL + i * band + band / 2} y={svgH - 8} textAnchor="middle" fontSize="10" fill={sel === i ? C.text : C.faint}>
+                    {m.label}
+                  </text>
+                  <rect
+                    x={padL + i * band} y={padT} width={band} height={plotH + labelH} fill="transparent"
+                    tabIndex={0} role="button" aria-label={`${MONTH_NAMES[parseInt(m.key.slice(5), 10) - 1]}: gastos ${money(m.gastos)}, ingresos ${money(m.ingresos)}`}
+                    style={{ cursor: "pointer", outline: "none" }}
+                    onPointerEnter={() => setSel(i)} onClick={() => setSel(i)} onFocus={() => setSel(i)}
+                  />
+                </g>
+              ))}
+            </svg>
+          )}
+          {/* Lectura del mes seleccionado (tooltip fijo: funciona también en táctil) */}
+          <div className="flex items-center gap-4 mt-2 text-xs flex-wrap" style={{ color: C.muted }}>
+            <span className="uppercase tracking-wider">{MONTH_NAMES[parseInt(selMes.key.slice(5), 10) - 1]} {selMes.year}</span>
+            <span className="flex items-center gap-1.5">
+              <Swatch color={C.chartGasto} />
+              <span className="font-mono" style={{ color: C.text, fontVariantNumeric: "tabular-nums" }}>{money(selMes.gastos)}</span> gastos
+            </span>
+            <span className="flex items-center gap-1.5">
+              <Swatch color={C.chartIngreso} />
+              <span className="font-mono" style={{ color: C.text, fontVariantNumeric: "tabular-nums" }}>{money(selMes.ingresos)}</span> ingresos
+            </span>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 // ---------- Resumen ----------
-function Resumen({ data }) {
+function Resumen({ data, update }) {
   const C = useTheme();
   const now = new Date();
+  const [payFor, setPayFor] = useState(null); // cardId de la tarjeta a pagar
+  const [paySrc, setPaySrc] = useState("");
+  const [payAmt, setPayAmt] = useState("");
+  const [payDate, setPayDate] = useState(todayISO());
+  const [payError, setPayError] = useState("");
   const ym = now.toISOString().slice(0, 7);
   const year = String(now.getFullYear());
 
@@ -385,15 +694,15 @@ function Resumen({ data }) {
   const counted = movements.filter((m) => isCountedCard(cardById[m.cardId]));
   const excludedCount = cards.filter((c) => !isCountedCard(c)).length;
 
-  const gastosMes = counted.filter((m) => m.type === "gasto" && !m.adjust && m.date.startsWith(ym));
-  const ingresosMes = counted.filter((m) => m.type === "ingreso" && !m.adjust && m.date.startsWith(ym));
+  const gastosMes = counted.filter((m) => m.type === "gasto" && !m.adjust && !m.transfer && m.date.startsWith(ym));
+  const ingresosMes = counted.filter((m) => m.type === "ingreso" && !m.adjust && !m.transfer && m.date.startsWith(ym));
   const totalGastosMes = gastosMes.reduce((s, m) => s + movTotal(m), 0);
   const totalIngresosMes = ingresosMes.reduce((s, m) => s + movTotal(m), 0);
 
   // Agrupar gastos por frecuencia de su categoría
   const groupByFreq = (freq, period) =>
     counted
-      .filter((m) => m.type === "gasto" && !m.adjust && (catById[m.categoryId]?.freq || "esporadico") === freq && m.date.startsWith(period))
+      .filter((m) => m.type === "gasto" && !m.adjust && !m.transfer && (catById[m.categoryId]?.freq || "esporadico") === freq && m.date.startsWith(period))
       .reduce((acc, m) => {
         const key = m.categoryId || "sin";
         acc[key] = (acc[key] || 0) + movTotal(m);
@@ -406,14 +715,47 @@ function Resumen({ data }) {
 
   const sum = (obj) => Object.values(obj).reduce((s, v) => s + v, 0);
 
+  // Balance total: dinero disponible (débito, ahorro y efectivo) de lo contabilizado
+  const totalBalance = cards
+    .filter((c) => isCountedCard(c) && c.type !== "credito")
+    .reduce((s, c) => s + balanceOfCard(c, movements), 0);
+
   // Deuda de tarjetas de crédito: gastos - pagos/ingresos
   const creditCards = cards.filter((c) => c.type === "credito" && isCountedCard(c));
   const debtByCard = creditCards.map((c) => {
     const g = movements.filter((m) => m.cardId === c.id && m.type === "gasto").reduce((s, m) => s + movTotal(m), 0);
     const p = movements.filter((m) => m.cardId === c.id && m.type === "ingreso").reduce((s, m) => s + movTotal(m), 0);
-    return { card: c, debt: g - p };
+    return { card: c, debt: g - p, statement: creditStatement(c, movements, now) };
   });
   const totalDebt = debtByCard.reduce((s, d) => s + d.debt, 0);
+  const totalToPay = debtByCard.reduce((s, d) => s + (d.statement ? d.statement.toPay : 0), 0);
+
+  // Pago de tarjeta: transferencia (no cuenta como gasto/ingreso en la contabilización)
+  const sourceCards = cards.filter((c) => c.type !== "credito");
+  const openPay = (card, statement, debt) => {
+    if (payFor === card.id) { setPayFor(null); return; }
+    setPayFor(card.id);
+    setPaySrc("");
+    setPayAmt((statement && statement.toPay > 0 ? statement.toPay : Math.max(debt, 0)).toFixed(2));
+    setPayDate(todayISO());
+    setPayError("");
+  };
+  const doPay = (card) => {
+    const amt = parseFloat(payAmt);
+    const src = cards.find((c) => c.id === paySrc);
+    if (!src) return setPayError("Elige la cuenta desde la que pagas.");
+    if (!amt || amt <= 0) return setPayError("Escribe un monto mayor a cero.");
+    const tid = uid();
+    const base = { categoryId: null, date: payDate, months: 1, commission: 0, transfer: true, transferId: tid };
+    update({
+      movements: [
+        { ...base, id: uid(), cardId: src.id, type: "gasto", amount: amt, description: `Pago de tarjeta ${card.name}` },
+        { ...base, id: uid(), cardId: card.id, type: "ingreso", amount: amt, description: `Pago desde ${src.name}` },
+        ...movements,
+      ],
+    });
+    setPayFor(null); setPayError("");
+  };
 
   // Cajas de ahorro
   const savingsCards = cards.filter((c) => c.type === "ahorro" && isCountedCard(c));
@@ -472,6 +814,17 @@ function Resumen({ data }) {
           {excludedCount === 1 ? "1 tarjeta está fuera de la contabilización" : `${excludedCount} tarjetas están fuera de la contabilización`}; sus movimientos no se incluyen en este resumen. Puedes activarlas en la pestaña Cuentas.
         </p>
       )}
+      {/* Balance total de lo contabilizado */}
+      <Card>
+        <p className="text-xs uppercase tracking-wider mb-1" style={{ color: C.muted }}>Balance total</p>
+        <span className="font-mono text-4xl" style={{ color: totalBalance < 0 ? C.red : C.text }}>
+          {money(totalBalance)}
+        </span>
+        <p className="text-xs mt-2" style={{ color: C.faint }}>
+          Suma de débito, ahorro y efectivo de las cuentas contabilizadas · no descuenta la deuda en crédito
+        </p>
+      </Card>
+
       {/* Cifras del mes */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <Card>
@@ -494,6 +847,12 @@ function Resumen({ data }) {
             {money(totalSavings)}
           </span>
         </Card>
+      </div>
+
+      {/* Gastos e ingresos por mes */}
+      <div>
+        <SectionTitle>Gastos e ingresos por mes</SectionTitle>
+        <GraficaMensual counted={counted} />
       </div>
 
       {/* Cajas de ahorro */}
@@ -565,17 +924,88 @@ function Resumen({ data }) {
         )}
       </div>
 
-      {/* Deuda por tarjeta */}
+      {/* Tarjetas de crédito: deuda, estado de cuenta y pago */}
       {creditCards.length > 0 && (
         <div>
-          <SectionTitle>Deuda por tarjeta de crédito</SectionTitle>
+          <SectionTitle right={totalToPay > 0 ? (
+            <span className="text-xs" style={{ color: C.amber }}>Pago del mes: {money(totalToPay)}</span>
+          ) : null}>
+            Tarjetas de crédito
+          </SectionTitle>
           <div className="space-y-2">
-            {debtByCard.map(({ card, debt }) => (
-              <Card key={card.id} className="flex items-center justify-between">
-                <span className="text-sm" style={{ color: C.muted }}>{cardLabel(card, accounts)}</span>
-                <span className="font-mono text-sm" style={{ color: debt > 0 ? C.red : C.green, fontVariantNumeric: "tabular-nums" }}>
-                  {money(debt)}
-                </span>
+            {debtByCard.map(({ card, debt, statement }) => (
+              <Card key={card.id}>
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="min-w-0">
+                    <span className="text-sm">{cardLabel(card, accounts)}</span>
+                    <div className="flex gap-2 mt-1 flex-wrap">
+                      {statement ? (
+                        <>
+                          <Chip color={C.faint}>Corte: día {clampDay(card.cutDay)}</Chip>
+                          {statement.dueDate && (
+                            <Chip color={C.amber} bg={C.amberSoft}>Paga antes del {fmtDia(statement.dueDate)}</Chip>
+                          )}
+                        </>
+                      ) : (
+                        <Chip color={C.faint}>Sin día de corte · configúralo en Cuentas</Chip>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <div className="text-right">
+                      <p className="text-xs" style={{ color: C.faint }}>Deuda total</p>
+                      <span className="font-mono text-sm" style={{ color: debt > 0 ? C.red : C.green, fontVariantNumeric: "tabular-nums" }}>
+                        {money(debt)}
+                      </span>
+                    </div>
+                    <Btn kind="ghost" onClick={() => openPay(card, statement, debt)}>
+                      {payFor === card.id ? "Cancelar" : "Pagar"}
+                    </Btn>
+                  </div>
+                </div>
+
+                {statement && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                    <div className="rounded-lg px-3 py-2" style={{ background: C.bg, border: `1px solid ${C.borderSoft}` }}>
+                      <p className="text-xs" style={{ color: C.faint }}>Gasto del periodo (desde el {fmtDia(statement.lastCut)})</p>
+                      <span className="font-mono text-sm" style={{ fontVariantNumeric: "tabular-nums" }}>{money(statement.periodSpend)}</span>
+                    </div>
+                    <div className="rounded-lg px-3 py-2" style={{ background: C.bg, border: `1px solid ${C.borderSoft}` }}>
+                      <p className="text-xs" style={{ color: C.faint }}>Pago de este mes (saldo al corte)</p>
+                      <span className="font-mono text-sm" style={{ color: statement.toPay > 0 ? C.amber : C.green, fontVariantNumeric: "tabular-nums" }}>
+                        {money(statement.toPay)}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {payFor === card.id && (
+                  <div className="mt-3 rounded-lg p-3" style={{ background: C.surface2, border: `1px solid ${C.border}` }}>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <Field label="Pagar desde">
+                        <Select value={paySrc} onChange={(e) => setPaySrc(e.target.value)}>
+                          <option value="">— Elegir cuenta —</option>
+                          {sourceCards.map((c) => (
+                            <option key={c.id} value={c.id}>{cardLabel(c, accounts)} · {money(balanceOfCard(c, movements))}</option>
+                          ))}
+                        </Select>
+                      </Field>
+                      <Field label="Monto (MXN)">
+                        <TextInput type="number" min="0" step="0.01" value={payAmt} onChange={(e) => setPayAmt(e.target.value)} />
+                      </Field>
+                      <Field label="Fecha">
+                        <TextInput type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} />
+                      </Field>
+                    </div>
+                    {payError && <p className="text-xs mt-2" style={{ color: C.red }}>{payError}</p>}
+                    <p className="text-xs mt-2" style={{ color: C.faint }}>
+                      Se registra como transferencia: baja la deuda de la tarjeta y el saldo de la cuenta elegida, sin contarse como gasto ni ingreso del mes.
+                    </p>
+                    <div className="mt-3">
+                      <Btn onClick={() => doPay(card)}>Registrar pago</Btn>
+                    </div>
+                  </div>
+                )}
               </Card>
             ))}
           </div>
@@ -598,9 +1028,13 @@ function Cuentas({ data, update }) {
   const [cardType, setCardType] = useState("debito");
   const [cardLast4, setCardLast4] = useState("");
   const [cardRate, setCardRate] = useState("");
+  const [cardCutDay, setCardCutDay] = useState("");
+  const [cardPayDay, setCardPayDay] = useState("");
   const [editBalFor, setEditBalFor] = useState(null); // cardId
   const [newBal, setNewBal] = useState("");
   const [newRate, setNewRate] = useState("");
+  const [newCutDay, setNewCutDay] = useState("");
+  const [newPayDay, setNewPayDay] = useState("");
 
   const addAccount = () => {
     if (!accName.trim()) return;
@@ -643,8 +1077,12 @@ function Cuentas({ data, update }) {
       card.rate = parseFloat(cardRate) || 0;
       card.lastAccrual = todayISO();
     }
+    if (cardType === "credito") {
+      card.cutDay = clampDay(cardCutDay);
+      card.payDay = clampDay(cardPayDay);
+    }
     update({ cards: [...cards, card] });
-    setCardName(""); setCardType("debito"); setCardLast4(""); setCardRate(""); setCardFormFor(null);
+    setCardName(""); setCardType("debito"); setCardLast4(""); setCardRate(""); setCardCutDay(""); setCardPayDay(""); setCardFormFor(null);
   };
 
   const deleteCard = (id) => {
@@ -657,6 +1095,8 @@ function Cuentas({ data, update }) {
     setEditBalFor(card.id);
     setNewBal(balanceOfCard(card, movements).toFixed(2));
     setNewRate(card.rate != null ? String(card.rate) : "");
+    setNewCutDay(clampDay(card.cutDay) ? String(card.cutDay) : "");
+    setNewPayDay(clampDay(card.payDay) ? String(card.payDay) : "");
   };
 
   const saveBalance = (card) => {
@@ -667,6 +1107,13 @@ function Cuentas({ data, update }) {
       const r = parseFloat(newRate) || 0;
       if (r !== Number(card.rate)) {
         patch.cards = cards.map((c) => (c.id === card.id ? { ...c, rate: r } : c));
+      }
+    }
+    // Actualizar días de corte y pago si es crédito
+    if (card.type === "credito") {
+      const cd = clampDay(newCutDay), pd = clampDay(newPayDay);
+      if (cd !== clampDay(card.cutDay) || pd !== clampDay(card.payDay)) {
+        patch.cards = cards.map((c) => (c.id === card.id ? { ...c, cutDay: cd, payDay: pd } : c));
       }
     }
     // Ajustar saldo con un movimiento de ajuste (mantiene el historial cuadrado)
@@ -753,7 +1200,7 @@ function Cuentas({ data, update }) {
                   {acc.excluded ? "Contabilizar" : "No contabilizar"}
                 </Btn>
                 {!isCash && (
-                  <Btn kind="ghost" onClick={() => { setCardFormFor(cardFormFor === acc.id ? null : acc.id); setCardName(""); setCardType("debito"); setCardLast4(""); setCardRate(""); }}>
+                  <Btn kind="ghost" onClick={() => { setCardFormFor(cardFormFor === acc.id ? null : acc.id); setCardName(""); setCardType("debito"); setCardLast4(""); setCardRate(""); setCardCutDay(""); setCardPayDay(""); }}>
                     {cardFormFor === acc.id ? "Cancelar" : "+ Tarjeta"}
                   </Btn>
                 )}
@@ -783,10 +1230,25 @@ function Cuentas({ data, update }) {
                       <TextInput value={cardLast4} onChange={(e) => setCardLast4(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="1234" />
                     </Field>
                   )}
+                  {cardType === "credito" && (
+                    <>
+                      <Field label="Día de corte (1–31)">
+                        <TextInput type="number" min="1" max="31" value={cardCutDay} onChange={(e) => setCardCutDay(e.target.value)} placeholder="Ej. 15" />
+                      </Field>
+                      <Field label="Día límite de pago (1–31)">
+                        <TextInput type="number" min="1" max="31" value={cardPayDay} onChange={(e) => setCardPayDay(e.target.value)} placeholder="Ej. 5" />
+                      </Field>
+                    </>
+                  )}
                 </div>
                 {cardType === "ahorro" && (
                   <p className="text-xs mt-2" style={{ color: C.faint }}>
                     Los rendimientos se abonan automáticamente cada día con interés compuesto según el porcentaje.
+                  </p>
+                )}
+                {cardType === "credito" && (
+                  <p className="text-xs mt-2" style={{ color: C.faint }}>
+                    Con el día de corte y el de pago, el Resumen calcula cuánto gastas por periodo y cuánto debes pagar cada mes. En el celular además recibirás una notificación en cada fecha.
                   </p>
                 )}
                 <div className="mt-3">
@@ -814,6 +1276,9 @@ function Cuentas({ data, update }) {
                           <Chip color={typeColor} bg={isSavings || isCashCard ? C.accentSoft : undefined}>{typeLabel}</Chip>
                           <span className="text-sm truncate">{card.name}{card.last4 && <span style={{ color: C.faint }}> ····{card.last4}</span>}</span>
                           {isSavings && <Chip color={C.accent}>{Number(card.rate) || 0}%</Chip>}
+                          {isCredit && clampDay(card.cutDay) && (
+                            <Chip color={C.faint}>Corte {card.cutDay}{clampDay(card.payDay) ? ` · Pago ${card.payDay}` : ""}</Chip>
+                          )}
                           {card.excluded && <Chip color={C.faint}>No contabilizada</Chip>}
                         </div>
                         <div className="flex items-center gap-3 shrink-0">
@@ -846,6 +1311,16 @@ function Cuentas({ data, update }) {
                                 <TextInput type="number" min="0" step="0.01" value={newRate} onChange={(e) => setNewRate(e.target.value)} />
                               </Field>
                             )}
+                            {isCredit && (
+                              <>
+                                <Field label="Día de corte (1–31)">
+                                  <TextInput type="number" min="1" max="31" value={newCutDay} onChange={(e) => setNewCutDay(e.target.value)} placeholder="Ej. 15" />
+                                </Field>
+                                <Field label="Día límite de pago (1–31)">
+                                  <TextInput type="number" min="1" max="31" value={newPayDay} onChange={(e) => setNewPayDay(e.target.value)} placeholder="Ej. 5" />
+                                </Field>
+                              </>
+                            )}
                           </div>
                           <p className="text-xs mt-2" style={{ color: C.faint }}>
                             La diferencia se registra como un movimiento de "Ajuste de saldo" para que el historial siga cuadrando.
@@ -876,6 +1351,8 @@ function Movimientos({ data, update }) {
   const [type, setType] = useState("gasto");
   const [accountId, setAccountId] = useState("");
   const [cardId, setCardId] = useState("");
+  const [toAccountId, setToAccountId] = useState("");
+  const [toCardId, setToCardId] = useState("");
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -885,7 +1362,9 @@ function Movimientos({ data, update }) {
   const [commission, setCommission] = useState("");
   const [error, setError] = useState("");
 
+  const isTransfer = type === "transfer";
   const accCards = cards.filter((c) => c.accountId === accountId);
+  const toAccCards = cards.filter((c) => c.accountId === toAccountId);
   const selectedCard = cards.find((c) => c.id === cardId);
   const isCreditExpense = type === "gasto" && selectedCard?.type === "credito";
 
@@ -893,14 +1372,33 @@ function Movimientos({ data, update }) {
   const cardById = useMemo(() => Object.fromEntries(cards.map((c) => [c.id, c])), [cards]);
 
   const resetForm = () => {
-    setType("gasto"); setAccountId(""); setCardId(""); setAmount(""); setDescription("");
+    setType("gasto"); setAccountId(""); setCardId(""); setToAccountId(""); setToCardId(""); setAmount(""); setDescription("");
     setCategoryId(""); setDate(todayISO()); setAMeses(false); setMonths(3); setCommission(""); setError("");
   };
 
   const save = () => {
     const amt = parseFloat(amount);
-    if (!cardId) return setError("Elige una cuenta y una tarjeta.");
+    if (!cardId) return setError(isTransfer ? "Elige la cuenta y tarjeta de origen." : "Elige una cuenta y una tarjeta.");
     if (!amt || amt <= 0) return setError("Escribe un monto mayor a cero.");
+    if (isTransfer) {
+      if (!toCardId) return setError("Elige la cuenta y tarjeta de destino.");
+      if (toCardId === cardId) return setError("El origen y el destino deben ser distintos.");
+      const from = cards.find((c) => c.id === cardId);
+      const to = cards.find((c) => c.id === toCardId);
+      const tid = uid();
+      const desc = description.trim();
+      const base = { categoryId: null, date, months: 1, commission: 0, transfer: true, transferId: tid };
+      update({
+        movements: [
+          { ...base, id: uid(), cardId, type: "gasto", amount: amt, description: desc || `Transferencia a ${to?.name || "?"}` },
+          { ...base, id: uid(), cardId: toCardId, type: "ingreso", amount: amt, description: desc || `Transferencia desde ${from?.name || "?"}` },
+          ...movements,
+        ],
+      });
+      resetForm();
+      setShow(false);
+      return;
+    }
     if (!categoryId) return setError("Elige una categoría (puedes crear más en la pestaña Categorías).");
     const mov = {
       id: uid(),
@@ -918,7 +1416,12 @@ function Movimientos({ data, update }) {
     setShow(false);
   };
 
-  const del = (id) => update({ movements: movements.filter((m) => m.id !== id) });
+  // Al borrar una pata de una transferencia se borran las dos, para no descuadrar
+  const del = (id) => {
+    const mov = movements.find((m) => m.id === id);
+    if (mov?.transferId) return update({ movements: movements.filter((m) => m.transferId !== mov.transferId) });
+    update({ movements: movements.filter((m) => m.id !== id) });
+  };
 
   const sorted = [...movements].sort((a, b) => (a.date < b.date ? 1 : -1));
 
@@ -938,18 +1441,19 @@ function Movimientos({ data, update }) {
               <Select value={type} onChange={(e) => setType(e.target.value)}>
                 <option value="gasto">Gasto</option>
                 <option value="ingreso">Ingreso / Depósito / Pago a tarjeta</option>
+                <option value="transfer">Transferencia entre cuentas</option>
               </Select>
             </Field>
             <Field label="Fecha">
               <TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} />
             </Field>
-            <Field label="Cuenta">
+            <Field label={isTransfer ? "Cuenta origen" : "Cuenta"}>
               <Select value={accountId} onChange={(e) => { setAccountId(e.target.value); setCardId(""); }}>
                 <option value="">— Elegir cuenta —</option>
                 {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
               </Select>
             </Field>
-            <Field label="Tarjeta">
+            <Field label={isTransfer ? "Tarjeta origen" : "Tarjeta"}>
               <Select value={cardId} onChange={(e) => setCardId(e.target.value)} disabled={!accountId}>
                 <option value="">{accountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
                 {accCards.map((c) => (
@@ -959,21 +1463,43 @@ function Movimientos({ data, update }) {
                 ))}
               </Select>
             </Field>
+            {isTransfer && (
+              <>
+                <Field label="Cuenta destino">
+                  <Select value={toAccountId} onChange={(e) => { setToAccountId(e.target.value); setToCardId(""); }}>
+                    <option value="">— Elegir cuenta —</option>
+                    {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
+                  </Select>
+                </Field>
+                <Field label="Tarjeta destino">
+                  <Select value={toCardId} onChange={(e) => setToCardId(e.target.value)} disabled={!toAccountId}>
+                    <option value="">{toAccountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
+                    {toAccCards.filter((c) => c.id !== cardId).map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}{c.last4 ? ` ····${c.last4}` : ""} · {c.type === "credito" ? "Crédito" : c.type === "ahorro" ? "Caja de ahorro" : c.type === "efectivo" ? "Efectivo" : "Débito"}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </>
+            )}
             <Field label="Monto (MXN)">
               <TextInput type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" />
             </Field>
-            <Field label="Categoría">
-              <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-                <option value="">— Elegir categoría —</option>
-                {FREQS.map((f) => (
-                  <optgroup key={f.id} label={f.label}>
-                    {categories.filter((c) => c.freq === f.id).map((c) => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </optgroup>
-                ))}
-              </Select>
-            </Field>
+            {!isTransfer && (
+              <Field label="Categoría">
+                <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+                  <option value="">— Elegir categoría —</option>
+                  {FREQS.map((f) => (
+                    <optgroup key={f.id} label={f.label}>
+                      {categories.filter((c) => c.freq === f.id).map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </Select>
+              </Field>
+            )}
             <div className="sm:col-span-2">
               <Field label="Descripción">
                 <TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Ej. Súper de la semana, pago de Netflix…" />
@@ -1019,6 +1545,11 @@ function Movimientos({ data, update }) {
             </div>
           )}
 
+          {isTransfer && (
+            <p className="text-xs mt-3" style={{ color: C.faint }}>
+              La transferencia mueve el dinero entre tus cuentas sin contarse como gasto ni ingreso en el resumen. Si el destino es una tarjeta de crédito, funciona como pago de la tarjeta.
+            </p>
+          )}
           {error && <p className="text-xs mt-3" style={{ color: C.red }}>{error}</p>}
           <div className="mt-4">
             <Btn onClick={save}>Guardar movimiento</Btn>
@@ -1048,6 +1579,7 @@ function Movimientos({ data, update }) {
                     {cat && <Chip color={C.faint}>{FREQS.find((f) => f.id === cat.freq)?.label}</Chip>}
                     {m.interest && <Chip color={C.green} bg={C.accentSoft}>Rendimiento automático</Chip>}
                     {m.adjust && <Chip color={C.faint}>Ajuste manual</Chip>}
+                    {m.transfer && <Chip color={C.blue}>Transferencia</Chip>}
                     {hasMSI && <Chip color={C.amber} bg={C.amberSoft}>{m.months} MSI</Chip>}
                     {Number(m.commission) > 0 && <Chip color={C.red}>Comisión {money(m.commission)}</Chip>}
                   </div>
