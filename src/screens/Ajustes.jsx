@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useTheme } from "../theme";
 import { SUPPORT_EMAIL } from "../constants";
+import { exportData, isValidBackup } from "../lib/backup";
 import { Btn, Card } from "../components/ui";
-import { IconSun, IconMoon, IconMail, IconPlay, IconX } from "../components/icons";
+import { IconSun, IconMoon, IconMail, IconPlay, IconX, IconDownload, IconUpload } from "../components/icons";
 
 // Sección plegable reutilizable (FAQ, términos…)
 function Collapsible({ title, children }) {
@@ -31,7 +32,7 @@ function Collapsible({ title, children }) {
 const FAQ = [
   {
     q: "¿Dónde se guardan mis datos?",
-    a: "Todo se guarda localmente en tu teléfono (o navegador). Nada se sube a internet ni se comparte. Ojo: si desinstalas la app o borras los datos de la aplicación, tu información se pierde — no hay respaldo en la nube por ahora.",
+    a: "Todo se guarda localmente en tu teléfono (o navegador). Nada se sube a internet ni se comparte. Como no hay respaldo en la nube, si desinstalas o borras los datos de la app se pierde tu información: por eso conviene exportar un respaldo de vez en cuando desde \"Datos y respaldo\" y guardarlo en Drive o Archivos.",
   },
   {
     q: "¿Cómo se calcula el \"Pago de este mes\" de mi tarjeta de crédito?",
@@ -43,7 +44,7 @@ const FAQ = [
   },
   {
     q: "¿Cómo funciona la lectura de notificaciones?",
-    a: "En Movimientos, toca \"Permitir acceso\" y activa Mis Finanzas en los ajustes del sistema. A partir de ahí, cuando tu banco te notifique un cargo, aparecerá en \"Por confirmar\" con el monto y la tarjeta ya detectados. La lectura ocurre solo en tu teléfono.",
+    a: "En Movimientos, toca \"Permitir acceso\" y activa Mis Finanzas en los ajustes del sistema. Después, en la lista \"Apps de las que registrar cargos\", enciende tu banco (por privacidad todas empiezan apagadas). A partir de ahí, sus cargos aparecerán en \"Por confirmar\" con el monto y la tarjeta ya detectados, sin repetir el mismo cargo dos veces. La lectura ocurre solo en tu teléfono.",
   },
   {
     q: "¿Qué es la \"tarjeta digital\"?",
@@ -73,9 +74,51 @@ const TERMS = [
   ["7. Cambios", "Estos términos pueden actualizarse con nuevas versiones de la app. El uso continuado tras una actualización implica la aceptación de los términos vigentes."],
 ];
 
-export default function Ajustes({ data, update, onClose, onShowTour }) {
+export default function Ajustes({ data, update, onClose, onShowTour, onImport }) {
   const C = useTheme();
   const mode = data.theme === "light" ? "light" : "dark";
+  const fileRef = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null); // { type: "ok" | "error", text }
+
+  const doExport = async () => {
+    setBusy(true); setMsg(null);
+    try {
+      await exportData(data);
+    } catch (e) {
+      // El usuario pudo cancelar el menú de compartir; solo avisamos si fue otro error
+      if (!/cancel/i.test(String(e?.message || e))) {
+        setMsg({ type: "error", text: "No se pudo exportar el respaldo." });
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onFile = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // permite volver a elegir el mismo archivo
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onerror = () => setMsg({ type: "error", text: "No se pudo leer el archivo." });
+    reader.onload = () => {
+      let parsed;
+      try {
+        parsed = JSON.parse(reader.result);
+      } catch {
+        setMsg({ type: "error", text: "El archivo no es un respaldo válido." });
+        return;
+      }
+      if (!isValidBackup(parsed)) {
+        setMsg({ type: "error", text: "El archivo no parece un respaldo de Mis Finanzas." });
+        return;
+      }
+      if (!window.confirm("Se reemplazarán TODOS tus datos actuales con los del respaldo. ¿Continuar?")) return;
+      onImport(parsed);
+      setMsg({ type: "ok", text: "Datos restaurados correctamente." });
+    };
+    reader.readAsText(file);
+  };
 
   return (
     <div className="space-y-4">
@@ -104,6 +147,31 @@ export default function Ajustes({ data, update, onClose, onShowTour }) {
             Ver el recorrido de la app
           </Btn>
         </div>
+      </Card>
+
+      {/* Respaldo de datos */}
+      <Card>
+        <h3 className="text-sm font-medium mb-2">Datos y respaldo</h3>
+        <p className="text-xs mb-3" style={{ color: C.faint }}>
+          Tus datos viven solo en este dispositivo. Exporta un respaldo y guárdalo (en Drive, Archivos, etc.) para no perderlo si cambias de teléfono, reinstalas o borras la app. Impórtalo cuando quieras restaurarlo.
+        </p>
+        <div className="flex flex-col gap-2">
+          <Btn className="flex items-center justify-center gap-2" onClick={doExport} disabled={busy}>
+            <IconDownload />
+            {busy ? "Exportando…" : "Exportar respaldo"}
+          </Btn>
+          <Btn kind="ghost" className="flex items-center justify-center gap-2" onClick={() => fileRef.current?.click()}>
+            <IconUpload />
+            Importar respaldo
+          </Btn>
+          <input ref={fileRef} type="file" accept="application/json,.json" onChange={onFile} style={{ display: "none" }} />
+        </div>
+        {msg && (
+          <p className="text-xs mt-2" style={{ color: msg.type === "error" ? C.red : C.green }}>{msg.text}</p>
+        )}
+        <p className="text-xs mt-2" style={{ color: C.faint }}>
+          Al importar se reemplazan por completo los datos actuales de la app.
+        </p>
       </Card>
 
       {/* Preguntas frecuentes */}

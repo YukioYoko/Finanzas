@@ -228,3 +228,48 @@ export function parseCapturedNotification(item, cards) {
     text: text.slice(0, 200),
   };
 }
+
+// Procesa las notificaciones capturadas del sistema:
+// - registra cada app detectada (deshabilitada por defecto: solo se lee de las que el usuario habilite)
+// - solo convierte en movimiento por confirmar las de apps habilitadas
+// - evita duplicados: misma app + mismo monto + mismo texto dentro de una ventana de tiempo
+export function ingestCaptures(items, data, now = Date.now()) {
+  const DUP_WINDOW = 10 * 60 * 1000;          // 10 min: mismo cargo repetido = duplicado
+  const SEEN_TTL = 7 * 24 * 60 * 60 * 1000;   // recuerda firmas 7 días
+
+  const apps = { ...(data.inboxApps || {}) };
+  const seen = (data.inboxSeen || []).filter((s) => now - s.time < SEEN_TTL);
+  const existingIds = new Set((data.inbox || []).map((i) => i.id));
+  const inboxAdd = [];
+  let changed = false;
+
+  for (const it of items || []) {
+    const pkg = it.app || "";
+    if (!pkg) continue;
+
+    // Registrar app nueva (deshabilitada) o completar su nombre legible
+    if (!apps[pkg]) {
+      apps[pkg] = { label: it.appLabel || pkg, enabled: false };
+      changed = true;
+    } else if (it.appLabel && apps[pkg].label === pkg && it.appLabel !== pkg) {
+      apps[pkg] = { ...apps[pkg], label: it.appLabel };
+      changed = true;
+    }
+    if (!apps[pkg].enabled) continue; // solo apps habilitadas
+
+    const parsed = parseCapturedNotification(it, data.cards);
+    if (!parsed || existingIds.has(parsed.id)) continue;
+
+    const sig = `${pkg}|${parsed.amount}|${(it.title || "").trim().toLowerCase()}`;
+    const t = Number(it.time) || now;
+    const dup = seen.some((s) => s.sig === sig && Math.abs(t - s.time) < DUP_WINDOW);
+    if (dup) continue;
+
+    seen.push({ sig, time: t });
+    existingIds.add(parsed.id);
+    inboxAdd.push(parsed);
+    changed = true;
+  }
+
+  return { inboxAdd, inboxApps: apps, inboxSeen: seen, changed };
+}

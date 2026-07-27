@@ -1,5 +1,25 @@
 @import "tailwindcss";
 
+/* Escalado y zoom: la app usa su propio tamaño de letra; evitamos que el WebView
+   infle el texto con el ajuste del sistema (se controla también en MainActivity)
+   y que un desborde horizontal muestre scroll lateral. */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+html,
+body {
+  overflow-x: hidden;
+  overscroll-behavior-y: none;
+  touch-action: pan-x pan-y; /* permite desplazarse, no hacer zoom con gestos */
+}
+
+/* Nunca dejes que una palabra larga (correos, títulos) rompa el ancho */
+body {
+  overflow-wrap: break-word;
+}
+
 /* Entrada del sidebar de Ajustes */
 @keyframes slide-in-right {
   from { transform: translateX(100%); }

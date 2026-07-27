@@ -3,7 +3,7 @@ import { Capacitor } from "@capacitor/core";
 import { THEMES, ThemeContext } from "./theme";
 import { EMPTY } from "./constants";
 import { store } from "./store";
-import { applyInterest, applyRecurring, parseCapturedNotification } from "./lib/finance";
+import { applyInterest, applyRecurring, ingestCaptures } from "./lib/finance";
 import { scheduleCardReminders, NotificationInbox } from "./lib/notifications";
 import Resumen from "./screens/Resumen";
 import Cuentas from "./screens/Cuentas";
@@ -86,11 +86,9 @@ export default function FinanzasApp() {
         const { items } = await NotificationInbox.drain();
         if (!items || !items.length) return;
         setData((d) => {
-          const existing = new Set((d.inbox || []).map((i) => i.id));
-          const parsed = items
-            .map((it) => parseCapturedNotification(it, d.cards))
-            .filter((p) => p && !existing.has(p.id));
-          return parsed.length ? { ...d, inbox: [...parsed, ...(d.inbox || [])] } : d;
+          const { inboxAdd, inboxApps, inboxSeen, changed } = ingestCaptures(items, d, Date.now());
+          if (!changed) return d;
+          return { ...d, inbox: [...inboxAdd, ...(d.inbox || [])], inboxApps, inboxSeen };
         });
       } catch (e) {
         // Plugin no disponible o error nativo: la app sigue sin bandeja
@@ -110,6 +108,9 @@ export default function FinanzasApp() {
   }
 
   const update = (patch) => setData((d) => ({ ...d, ...patch }));
+  // Reemplaza todo el estado con un respaldo importado (rellena claves faltantes
+  // y vuelve a aplicar intereses y cargos fijos, como en la carga inicial)
+  const importData = (backup) => setData(applyRecurring(applyInterest({ ...EMPTY, ...backup })));
 
   return (
     <ThemeContext.Provider value={C}>
@@ -146,7 +147,7 @@ export default function FinanzasApp() {
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
-                className="flex-1 rounded-lg py-2 text-sm transition-colors"
+                className="flex-1 min-w-0 truncate rounded-lg py-2 text-sm transition-colors"
                 style={tab === t.id
                   ? { background: C.accentSoft, color: C.accent, border: `1px solid ${C.border}`, fontWeight: 600 }
                   : { color: C.muted, border: "1px solid transparent" }}
@@ -177,6 +178,7 @@ export default function FinanzasApp() {
               <Ajustes
                 data={data}
                 update={update}
+                onImport={importData}
                 onClose={() => setShowSettings(false)}
                 onShowTour={() => { setShowSettings(false); setShowTour(true); }}
               />

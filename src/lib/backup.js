@@ -1,0 +1,49 @@
+import { Capacitor } from "@capacitor/core";
+import { Filesystem, Directory, Encoding } from "@capacitor/filesystem";
+import { Share } from "@capacitor/share";
+
+function backupFilename() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `mis-finanzas-${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}.json`;
+}
+
+// Exporta todo el estado a un archivo JSON.
+// - Android: lo escribe y abre el menú de compartir para guardarlo (Drive, Archivos, etc.)
+// - Web: descarga el archivo directamente.
+export async function exportData(data) {
+  const json = JSON.stringify(data, null, 2);
+  const filename = backupFilename();
+
+  if (Capacitor.isNativePlatform()) {
+    const res = await Filesystem.writeFile({
+      path: filename,
+      data: json,
+      directory: Directory.Cache,
+      encoding: Encoding.UTF8,
+    });
+    await Share.share({
+      title: "Respaldo de Mis Finanzas",
+      text: "Guarda este archivo para restaurar tus datos cuando lo necesites.",
+      url: res.uri,
+    });
+  } else {
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+}
+
+// Valida que un objeto parseado tenga la forma mínima de un respaldo de la app
+export function isValidBackup(obj) {
+  return !!obj && typeof obj === "object"
+    && Array.isArray(obj.accounts)
+    && Array.isArray(obj.cards)
+    && Array.isArray(obj.movements);
+}

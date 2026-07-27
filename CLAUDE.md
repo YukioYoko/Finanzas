@@ -36,8 +36,9 @@ Pushing to `main` triggers `.github/workflows/build-apk.yml`, which builds the w
 - **`src/constants.js`** — `FREQS`, `MESES_OPCIONES`, month names, `seedCategories`, and `EMPTY` (the state shape).
 - **`src/store.js`** — the storage abstraction (see Persistence).
 - **`src/utils/format.js`** — `money`, `uid`, `todayISO`, `isoOf`, `fmtDia`.
-- **`src/lib/finance.js`** — all money math as pure functions: `cardLabel`, `movTotal`, `balanceOfCard`, `creditStatement`, `applyInterest`, `applyRecurring`, `nextChargeOf`, `parseCapturedNotification`, `clampDay`, `dateWithDay`. This is the single source of truth for balances and statements; screens never compute them independently.
+- **`src/lib/finance.js`** — all money math as pure functions: `cardLabel`, `movTotal`, `balanceOfCard`, `creditStatement`, `applyInterest`, `applyRecurring`, `nextChargeOf`, `parseCapturedNotification`, `ingestCaptures`, `clampDay`, `dateWithDay`. This is the single source of truth for balances and statements; screens never compute them independently.
 - **`src/lib/notifications.js`** — the `NotificationInbox` native-plugin proxy and `scheduleCardReminders`.
+- **`src/lib/backup.js`** — `exportData` (native: write file via `@capacitor/filesystem` + open `@capacitor/share` sheet; web: Blob download) and `isValidBackup`. Import/restore is wired in Ajustes (`<input type=file>`) → `App.importData`, which replaces the whole state with `applyRecurring(applyInterest({ ...EMPTY, ...backup }))`.
 - **`src/components/ui.jsx`** — UI primitives: `Field`, `TextInput`, `Select`, `Btn`, `Chip`, `Amount`, `Card`, `SectionTitle`, `Empty`. Reuse these instead of writing raw `<input>`/`<button>` markup.
 - **`src/components/GraficaMensual.jsx`** — the 6-month income/expense grouped-column SVG chart (with table view).
 - **`src/components/Tour.jsx`** — the welcome tour overlay, shown on first launch (`data.tourSeen` flag) and replayable from Ajustes.
@@ -66,10 +67,10 @@ The `store` object (`src/App.jsx`) abstracts storage: it uses `window.storage` i
 ### Notification inbox (auto-captured charges)
 
 Android-only feature with custom native code in `android/app/src/main/java/com/yukioyoko/finanzas/`:
-- `NotificationCaptureService` (a `NotificationListenerService`, requires the user to grant "Notification access" in system settings) captures any device notification containing a money amount into a local JSON file.
+- `NotificationCaptureService` (a `NotificationListenerService`, requires the user to grant "Notification access" in system settings) captures any device notification containing a money amount into a local JSON file, recording package name (`app`), human-readable `appLabel`, `title`, `text`, and `time`.
 - `NotificationInboxPlugin` (registered in `MainActivity`) bridges to JS as the `NotificationInbox` plugin with `isEnabled()`, `openSettings()`, and `drain()` (returns captured items and clears the file).
 
-On the JS side (`registerPlugin("NotificationInbox")` in src/App.jsx), a load-time effect drains captures into `data.inbox`; `parseCapturedNotification` extracts the amount, guesses the card by last-4 digits (left blank when no match) and the type by keywords. The Movimientos tab shows an enable banner when access isn't granted, and a "Por confirmar" list where the user completes description/category (and card if blank) to convert an inbox item into a real movement, or discards it. `data.inbox` persists with the rest of the state.
+On the JS side (`registerPlugin("NotificationInbox")` in src/App.jsx), a load-time effect drains captures through `ingestCaptures` (in finance.js), which: (1) registers every seen app in `data.inboxApps` (`{ pkg: { label, enabled } }`) **disabled by default** — only enabled apps' notifications become inbox items, so the user allowlists their banks in the Movimientos tab; (2) dedups via `data.inboxSeen` (recent `pkg|amount|title` signatures within a 10-min window, kept 7 days) so the same charge isn't captured twice; (3) calls `parseCapturedNotification` to extract the amount, guess the card by last-4 digits (left blank when no match) and the type by keywords. The Movimientos tab shows an enable banner when access isn't granted, a per-app toggle list, and a "Por confirmar" list where the user completes title/category (and card if blank) to convert an inbox item into a real movement, or discards it. `data.inbox`, `inboxApps`, and `inboxSeen` persist with the rest of the state.
 
 ### Notifications
 

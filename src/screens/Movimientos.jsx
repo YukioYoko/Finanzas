@@ -2,10 +2,39 @@ import { useState, useEffect, useMemo } from "react";
 import { Capacitor } from "@capacitor/core";
 import { useTheme } from "../theme";
 import { FREQS, MESES_OPCIONES } from "../constants";
-import { money, uid, todayISO } from "../utils/format";
+import { money, uid, todayISO, isoOf } from "../utils/format";
 import { cardLabel, movTotal, cardTypeLabel } from "../lib/finance";
 import { NotificationInbox } from "../lib/notifications";
 import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty } from "../components/ui";
+
+const PERIODOS = [
+  { id: "recientes", label: "Últimos 10" },
+  { id: "dia", label: "Hoy" },
+  { id: "semana", label: "Esta semana" },
+  { id: "mes", label: "Este mes" },
+  { id: "anio", label: "Este año" },
+];
+
+// Lunes de la semana que contiene `d` (semana inicia en lunes)
+function startOfWeek(d) {
+  const monday = new Date(d);
+  const day = monday.getDay(); // 0 domingo .. 6 sábado
+  monday.setDate(monday.getDate() + (day === 0 ? -6 : 1 - day));
+  monday.setHours(0, 0, 0, 0);
+  return monday;
+}
+
+// Filtra una lista ya ordenada (más nuevo primero) según el periodo elegido
+function filterByPeriodo(sorted, periodo) {
+  if (periodo === "recientes") return sorted.slice(0, 10);
+  const now = new Date();
+  let fromISO;
+  if (periodo === "dia") fromISO = todayISO();
+  else if (periodo === "semana") fromISO = isoOf(startOfWeek(now));
+  else if (periodo === "mes") fromISO = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  else fromISO = `${now.getFullYear()}-01-01`; // anio
+  return sorted.filter((m) => m.date >= fromISO);
+}
 
 // Un cargo detectado en una notificación, pendiente de que el usuario lo complete
 function InboxItem({ item, data, onConfirm, onDiscard }) {
@@ -248,6 +277,12 @@ export default function Movimientos({ data, update }) {
   };
   const discardInbox = (item) => update({ inbox: inbox.filter((i) => i.id !== item.id) });
 
+  // Apps detectadas en notificaciones: el usuario elige de cuáles registrar cargos
+  const inboxApps = data.inboxApps || {};
+  const appList = Object.entries(inboxApps).sort((a, b) => a[1].label.localeCompare(b[1].label));
+  const toggleApp = (pkg) =>
+    update({ inboxApps: { ...inboxApps, [pkg]: { ...inboxApps[pkg], enabled: !inboxApps[pkg].enabled } } });
+
   const [type, setType] = useState("gasto");
   const [accountId, setAccountId] = useState("");
   const [cardId, setCardId] = useState("");
@@ -257,6 +292,7 @@ export default function Movimientos({ data, update }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [editId, setEditId] = useState(null);
+  const [periodo, setPeriodo] = useState("recientes");
   const [categoryId, setCategoryId] = useState("");
   const [date, setDate] = useState(todayISO());
   const [aMeses, setAMeses] = useState(false);
@@ -333,6 +369,7 @@ export default function Movimientos({ data, update }) {
   };
 
   const sorted = [...movements].sort((a, b) => (a.date < b.date ? 1 : -1));
+  const visibles = filterByPeriodo(sorted, periodo);
 
   const totalConComision = (parseFloat(amount) || 0) + (parseFloat(commission) || 0);
   const mensualidad = aMeses && months > 0 ? totalConComision / months : 0;
@@ -352,6 +389,35 @@ export default function Movimientos({ data, update }) {
             </p>
           </div>
           <Btn kind="ghost" onClick={() => NotificationInbox.openSettings().catch(() => {})}>Permitir acceso</Btn>
+        </Card>
+      )}
+
+      {inboxEnabled && appList.length > 0 && (
+        <Card>
+          <p className="text-sm mb-1">Apps de las que registrar cargos</p>
+          <p className="text-xs mb-3" style={{ color: C.faint }}>
+            Solo se leen las notificaciones de las apps que actives aquí. Enciende tu banco para que sus cargos aparezcan en "Por confirmar".
+          </p>
+          <ul className="space-y-2">
+            {appList.map(([pkg, app]) => (
+              <li key={pkg} className="flex items-center justify-between gap-3">
+                <span className="text-sm truncate" style={{ color: app.enabled ? C.text : C.muted }}>{app.label}</span>
+                <button
+                  onClick={() => toggleApp(pkg)}
+                  role="switch"
+                  aria-checked={app.enabled}
+                  aria-label={`${app.enabled ? "Desactivar" : "Activar"} ${app.label}`}
+                  className="rounded-full transition-colors shrink-0"
+                  style={{ width: 40, height: 22, padding: 2, background: app.enabled ? C.accent : C.borderSoft, border: `1px solid ${C.border}` }}
+                >
+                  <span
+                    className="block rounded-full transition-transform"
+                    style={{ width: 16, height: 16, background: "#fff", transform: app.enabled ? "translateX(18px)" : "translateX(0)" }}
+                  />
+                </button>
+              </li>
+            ))}
+          </ul>
         </Card>
       )}
 
@@ -492,15 +558,39 @@ export default function Movimientos({ data, update }) {
         </Card>
       )}
 
+      {sorted.length > 0 && (
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex gap-1 flex-wrap">
+            {PERIODOS.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => setPeriodo(p.id)}
+                className="rounded-full px-3 py-1 text-xs transition-opacity hover:opacity-85"
+                style={periodo === p.id
+                  ? { background: C.accentSoft, color: C.accent, border: `1px solid ${C.border}`, fontWeight: 600 }
+                  : { color: C.muted, border: `1px solid ${C.borderSoft}` }}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          {periodo === "recientes" && sorted.length > 10 && (
+            <span className="text-xs" style={{ color: C.faint }}>Mostrando 10 de {sorted.length}</span>
+          )}
+        </div>
+      )}
+
       {sorted.length === 0 && !show ? (
         <Empty>
           {accounts.length === 0
             ? "Primero crea una cuenta y una tarjeta en la pestaña Cuentas; después registra aquí tus movimientos."
             : 'Sin movimientos todavía. Usa "+ Nuevo movimiento" para registrar el primero.'}
         </Empty>
+      ) : visibles.length === 0 ? (
+        <Empty>Sin movimientos en este periodo.</Empty>
       ) : (
         <div className="space-y-2">
-          {sorted.map((m) => {
+          {visibles.map((m) => {
             const cat = catById[m.categoryId];
             const card = cardById[m.cardId];
             const isGasto = m.type === "gasto";

@@ -41,9 +41,19 @@ public class NotificationCaptureService extends NotificationListenerService {
             String full = (title + " " + body).trim();
             if (!MONEY.matcher(full).find()) return;
 
+            String pkg = sbn.getPackageName();
+            String appLabel = pkg;
+            try {
+                android.content.pm.PackageManager pm = getPackageManager();
+                appLabel = pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString();
+            } catch (Exception e) {
+                // sin nombre legible: se queda el nombre del paquete
+            }
+
             JSONObject item = new JSONObject();
-            item.put("id", sbn.getPackageName() + ":" + sbn.getPostTime());
-            item.put("app", sbn.getPackageName());
+            item.put("id", pkg + ":" + sbn.getPostTime());
+            item.put("app", pkg);
+            item.put("appLabel", appLabel);
             item.put("title", title);
             item.put("text", body);
             item.put("time", sbn.getPostTime());
