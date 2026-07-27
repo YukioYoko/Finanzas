@@ -3,6 +3,7 @@ package com.yukioyoko.finanzas;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.provider.Settings;
 
 import com.getcapacitor.JSObject;
@@ -12,8 +13,12 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.io.File;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Puente JS <-> nativo para la bandeja de notificaciones capturadas:
@@ -50,6 +55,37 @@ public class NotificationInboxPlugin extends Plugin {
             call.resolve();
         } catch (Exception e) {
             call.reject("No se pudo cambiar el servicio de notificaciones", e);
+        }
+    }
+
+    // Lista las apps instaladas con ícono de inicio (bancos, etc.) para que el usuario
+    // elija de cuáles registrar cargos sin esperar a que llegue una notificación.
+    // Usa el intent de launcher (declarado en <queries>), no el permiso restringido
+    // QUERY_ALL_PACKAGES.
+    @PluginMethod
+    public void listInstalledApps(PluginCall call) {
+        try {
+            PackageManager pm = getContext().getPackageManager();
+            Intent main = new Intent(Intent.ACTION_MAIN, null);
+            main.addCategory(Intent.CATEGORY_LAUNCHER);
+            List<ResolveInfo> resolveInfos = pm.queryIntentActivities(main, 0);
+            String self = getContext().getPackageName();
+            Set<String> seen = new HashSet<>();
+            JSONArray apps = new JSONArray();
+            for (ResolveInfo ri : resolveInfos) {
+                if (ri.activityInfo == null) continue;
+                String pkg = ri.activityInfo.packageName;
+                if (pkg == null || pkg.equals(self) || !seen.add(pkg)) continue;
+                JSONObject o = new JSONObject();
+                o.put("pkg", pkg);
+                o.put("label", ri.loadLabel(pm).toString());
+                apps.put(o);
+            }
+            JSObject ret = new JSObject();
+            ret.put("apps", apps);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("No se pudieron listar las apps instaladas", e);
         }
     }
 
