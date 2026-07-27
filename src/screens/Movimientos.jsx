@@ -1,11 +1,9 @@
-import { useState, useEffect, useMemo } from "react";
-import { Capacitor } from "@capacitor/core";
+import { useState, useMemo } from "react";
 import { useTheme } from "../theme";
 import { FREQS, MESES_OPCIONES } from "../constants";
 import { money, uid, todayISO, isoOf } from "../utils/format";
 import { cardLabel, movTotal, cardTypeLabel } from "../lib/finance";
-import { NotificationInbox } from "../lib/notifications";
-import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty, Toggle } from "../components/ui";
+import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty } from "../components/ui";
 
 const PERIODOS = [
   { id: "recientes", label: "Últimos 10" },
@@ -262,14 +260,9 @@ export default function Movimientos({ data, update }) {
   const inbox = data.inbox || [];
   const [show, setShow] = useState(false);
 
-  // La lectura de notificaciones es opcional: se activa desde Ajustes
+  // La lectura de notificaciones es opcional; se configura en Ajustes. Aquí solo
+  // mostramos la bandeja "Por confirmar" con lo que ya se detectó.
   const captureOn = !!data.notifCaptureEnabled;
-  // Acceso a notificaciones: null = no aplica (web) o desconocido; false = falta concederlo
-  const [inboxEnabled, setInboxEnabled] = useState(null);
-  useEffect(() => {
-    if (!captureOn || !Capacitor.isNativePlatform()) return;
-    NotificationInbox.isEnabled().then((r) => setInboxEnabled(!!r.enabled)).catch(() => {});
-  }, [captureOn]);
 
   const confirmInbox = (item, fields) => {
     update({
@@ -278,34 +271,6 @@ export default function Movimientos({ data, update }) {
     });
   };
   const discardInbox = (item) => update({ inbox: inbox.filter((i) => i.id !== item.id) });
-
-  // Apps de las que registrar cargos: el usuario las elige (de las instaladas o de las detectadas)
-  const inboxApps = data.inboxApps || {};
-  const appList = Object.entries(inboxApps).sort((a, b) => a[1].label.localeCompare(b[1].label));
-  const setAppEnabled = (pkg, label, enabled) =>
-    update({ inboxApps: { ...inboxApps, [pkg]: { label: label || inboxApps[pkg]?.label || pkg, enabled } } });
-  const toggleApp = (pkg) => setAppEnabled(pkg, inboxApps[pkg]?.label, !inboxApps[pkg]?.enabled);
-
-  // Selector de apps instaladas en el dispositivo (para elegir sin esperar notificaciones)
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [installed, setInstalled] = useState([]);
-  const [pickerLoading, setPickerLoading] = useState(false);
-  const [appSearch, setAppSearch] = useState("");
-  const openPicker = async () => {
-    const next = !pickerOpen;
-    setPickerOpen(next);
-    if (next && !installed.length) {
-      setPickerLoading(true);
-      try {
-        const { apps } = await NotificationInbox.listInstalledApps();
-        setInstalled((apps || []).slice().sort((a, b) => a.label.localeCompare(b.label)));
-      } catch {
-        // plugin viejo o sin permiso: se queda vacío
-      }
-      setPickerLoading(false);
-    }
-  };
-  const filteredInstalled = installed.filter((a) => a.label.toLowerCase().includes(appSearch.trim().toLowerCase()));
 
   const [type, setType] = useState("gasto");
   const [accountId, setAccountId] = useState("");
@@ -403,66 +368,6 @@ export default function Movimientos({ data, update }) {
       <SectionTitle right={<Btn onClick={() => { setShow((v) => !v); if (!show) resetForm(); }}>{show ? "Cancelar" : "+ Nuevo movimiento"}</Btn>}>
         Movimientos
       </SectionTitle>
-
-      {captureOn && inboxEnabled === false && (
-        <Card className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="min-w-0 flex-1">
-            <p className="text-sm">Concede el acceso a notificaciones</p>
-            <p className="text-xs mt-1" style={{ color: C.faint }}>
-              Activaste el registro automático de cargos. Ahora permite que Mis Finanzas lea las notificaciones en los ajustes del sistema; los cargos aparecerán aquí para confirmar. Todo se procesa en tu teléfono, nada se envía fuera.
-            </p>
-          </div>
-          <Btn kind="ghost" onClick={() => NotificationInbox.openSettings().catch(() => {})}>Permitir acceso</Btn>
-        </Card>
-      )}
-
-      {captureOn && Capacitor.isNativePlatform() && (
-        <Card>
-          <p className="text-sm mb-1">Apps de las que registrar cargos</p>
-          <p className="text-xs mb-3" style={{ color: C.faint }}>
-            Elige tus apps de banco: solo se leen las notificaciones de las que actives. Puedes escogerlas de tus apps instaladas sin esperar a que llegue una notificación.
-          </p>
-
-          {appList.length > 0 && (
-            <ul className="space-y-2 mb-3">
-              {appList.map(([pkg, app]) => (
-                <li key={pkg} className="flex items-center justify-between gap-3">
-                  <span className="text-sm truncate" style={{ color: app.enabled ? C.text : C.muted }}>{app.label}</span>
-                  <Toggle on={app.enabled} onClick={() => toggleApp(pkg)} label={`${app.enabled ? "Desactivar" : "Activar"} ${app.label}`} />
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <Btn kind="ghost" onClick={openPicker} style={{ padding: "6px 12px" }}>
-            {pickerOpen ? "Cerrar lista" : "+ Elegir de mis apps instaladas"}
-          </Btn>
-
-          {pickerOpen && (
-            <div className="mt-3">
-              <TextInput value={appSearch} onChange={(e) => setAppSearch(e.target.value)} placeholder="Buscar app…" />
-              {pickerLoading ? (
-                <p className="text-xs mt-3" style={{ color: C.faint }}>Cargando apps…</p>
-              ) : (
-                <ul className="mt-3 space-y-2" style={{ maxHeight: 280, overflowY: "auto" }}>
-                  {filteredInstalled.map((a) => {
-                    const on = !!inboxApps[a.pkg]?.enabled;
-                    return (
-                      <li key={a.pkg} className="flex items-center justify-between gap-3">
-                        <span className="text-sm truncate" style={{ color: on ? C.text : C.muted }}>{a.label}</span>
-                        <Toggle on={on} onClick={() => setAppEnabled(a.pkg, a.label, !on)} label={`${on ? "Desactivar" : "Activar"} ${a.label}`} />
-                      </li>
-                    );
-                  })}
-                  {!filteredInstalled.length && (
-                    <li className="text-xs" style={{ color: C.faint }}>{installed.length ? "Sin resultados." : "No se encontraron apps."}</li>
-                  )}
-                </ul>
-              )}
-            </div>
-          )}
-        </Card>
-      )}
 
       {captureOn && inbox.length > 0 && (
         <div>
