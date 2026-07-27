@@ -1,10 +1,9 @@
 import { useState, useRef } from "react";
-import { Capacitor } from "@capacitor/core";
 import { useTheme } from "../theme";
 import { SUPPORT_EMAIL } from "../constants";
 import { exportData, isValidBackup } from "../lib/backup";
-import { NotificationInbox } from "../lib/notifications";
-import { Btn, Card, Toggle } from "../components/ui";
+import { Btn, Card } from "../components/ui";
+import NotificationCapture from "../components/NotificationCapture";
 import { IconSun, IconMoon, IconMail, IconPlay, IconX, IconDownload, IconUpload } from "../components/icons";
 
 // Sección plegable reutilizable (FAQ, términos…)
@@ -46,7 +45,7 @@ const FAQ = [
   },
   {
     q: "¿Cómo funciona la lectura de notificaciones?",
-    a: "Es una función opcional, apagada de fábrica. Primero actívala aquí en Ajustes (\"Registrar cargos desde notificaciones\"). Luego, en Movimientos, toca \"Permitir acceso\" y activa Mis Finanzas en los ajustes del sistema, y en la lista de apps enciende tu banco (por privacidad todas empiezan apagadas). A partir de ahí, sus cargos aparecerán en \"Por confirmar\" con el monto y la tarjeta ya detectados, sin repetir el mismo cargo dos veces. La lectura ocurre solo en tu teléfono, y puedes desactivar todo cuando quieras.",
+    a: "Es una función opcional, apagada de fábrica. Todo se configura aquí en Ajustes → \"Registrar cargos desde notificaciones\": actívala, toca \"Permitir acceso\" para habilitar Mis Finanzas en los ajustes del sistema, y elige tus bancos de la lista de apps instaladas. A partir de ahí, sus cargos aparecerán en la pestaña Movimientos, en \"Por confirmar\", con el monto y la tarjeta ya detectados y sin repetir el mismo cargo dos veces. La lectura ocurre solo en tu teléfono, y puedes desactivar todo cuando quieras.",
   },
   {
     q: "¿Qué es la \"tarjeta digital\"?",
@@ -82,18 +81,6 @@ export default function Ajustes({ data, update, onClose, onShowTour, onImport })
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null); // { type: "ok" | "error", text }
-
-  // Función opcional: lectura de notificaciones para registrar cargos
-  const captureOn = !!data.notifCaptureEnabled;
-  const toggleCapture = async () => {
-    const next = !captureOn;
-    try {
-      await NotificationInbox.setServiceEnabled({ enabled: next });
-    } catch {
-      // En web o si el plugin no está, igual guardamos la preferencia
-    }
-    update({ notifCaptureEnabled: next });
-  };
 
   const doExport = async () => {
     setBusy(true); setMsg(null);
@@ -164,24 +151,7 @@ export default function Ajustes({ data, update, onClose, onShowTour, onImport })
       </Card>
 
       {/* Lectura de notificaciones (opcional, solo en el APK de Android) */}
-      {Capacitor.isNativePlatform() && (
-        <Card>
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h3 className="text-sm font-medium">Registrar cargos desde notificaciones</h3>
-              <p className="text-xs mt-1" style={{ color: C.faint }}>
-                Opcional. Si lo activas, la app lee las notificaciones de los bancos que tú elijas para sugerirte movimientos ya con el monto. Todo se procesa en tu teléfono; nada se envía a internet. Puedes desactivarlo cuando quieras.
-              </p>
-            </div>
-            <Toggle on={captureOn} onClick={toggleCapture} label="Activar registro desde notificaciones" />
-          </div>
-          {captureOn && (
-            <p className="text-xs mt-3" style={{ color: C.muted }}>
-              Activado. En la pestaña Movimientos concede el acceso a notificaciones y elige de qué apps registrar cargos.
-            </p>
-          )}
-        </Card>
-      )}
+      <NotificationCapture data={data} update={update} />
 
       {/* Respaldo de datos */}
       <Card>
