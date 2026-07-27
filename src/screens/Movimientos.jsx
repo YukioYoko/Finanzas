@@ -262,12 +262,14 @@ export default function Movimientos({ data, update }) {
   const inbox = data.inbox || [];
   const [show, setShow] = useState(false);
 
+  // La lectura de notificaciones es opcional: se activa desde Ajustes
+  const captureOn = !!data.notifCaptureEnabled;
   // Acceso a notificaciones: null = no aplica (web) o desconocido; false = falta concederlo
   const [inboxEnabled, setInboxEnabled] = useState(null);
   useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
+    if (!captureOn || !Capacitor.isNativePlatform()) return;
     NotificationInbox.isEnabled().then((r) => setInboxEnabled(!!r.enabled)).catch(() => {});
-  }, []);
+  }, [captureOn]);
 
   const confirmInbox = (item, fields) => {
     update({
@@ -380,19 +382,19 @@ export default function Movimientos({ data, update }) {
         Movimientos
       </SectionTitle>
 
-      {inboxEnabled === false && (
+      {captureOn && inboxEnabled === false && (
         <Card className="flex items-center justify-between gap-3 flex-wrap">
           <div className="min-w-0 flex-1">
-            <p className="text-sm">Registra tus cargos automáticamente</p>
+            <p className="text-sm">Concede el acceso a notificaciones</p>
             <p className="text-xs mt-1" style={{ color: C.faint }}>
-              Permite que Mis Finanzas lea las notificaciones del celular para detectar cargos y depósitos del banco; aquí te aparecerán listos para confirmar. Todo se procesa en tu teléfono, nada se envía fuera.
+              Activaste el registro automático de cargos. Ahora permite que Mis Finanzas lea las notificaciones en los ajustes del sistema; los cargos aparecerán aquí para confirmar. Todo se procesa en tu teléfono, nada se envía fuera.
             </p>
           </div>
           <Btn kind="ghost" onClick={() => NotificationInbox.openSettings().catch(() => {})}>Permitir acceso</Btn>
         </Card>
       )}
 
-      {inboxEnabled && appList.length > 0 && (
+      {captureOn && inboxEnabled && appList.length > 0 && (
         <Card>
           <p className="text-sm mb-1">Apps de las que registrar cargos</p>
           <p className="text-xs mb-3" style={{ color: C.faint }}>
@@ -421,7 +423,7 @@ export default function Movimientos({ data, update }) {
         </Card>
       )}
 
-      {inbox.length > 0 && (
+      {captureOn && inbox.length > 0 && (
         <div>
           <h3 className="text-xs uppercase tracking-widest mb-2" style={{ color: C.amber }}>
             Por confirmar ({inbox.length})

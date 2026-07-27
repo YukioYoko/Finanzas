@@ -26,4 +26,6 @@ export const SUPPORT_EMAIL = "yukio.yokogawa141002@gmail.com";
 // Forma del estado global de la app
 // inboxApps: registro de apps detectadas { [paquete]: { label, enabled } } — solo se
 // capturan cargos de las habilitadas. inboxSeen: firmas recientes para evitar duplicados.
-export const EMPTY = { accounts: [], cards: [], categories: seedCategories, movements: [], inbox: [], inboxApps: {}, inboxSeen: [], recurring: [], theme: "dark", tourSeen: false };
+// notifCaptureEnabled: la lectura de notificaciones es opcional y arranca apagada;
+// el usuario la activa desde Ajustes.
+export const EMPTY = { accounts: [], cards: [], categories: seedCategories, movements: [], inbox: [], inboxApps: {}, inboxSeen: [], recurring: [], theme: "dark", tourSeen: false, notifCaptureEnabled: false };

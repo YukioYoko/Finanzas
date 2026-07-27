@@ -100,6 +100,25 @@ export function SectionTitle({ children, right }) {
   );
 }
 
+export function Toggle({ on, onClick, label }) {
+  const C = useTheme();
+  return (
+    <button
+      onClick={onClick}
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      className="rounded-full transition-colors shrink-0"
+      style={{ width: 40, height: 22, padding: 2, background: on ? C.accent : C.borderSoft, border: `1px solid ${C.border}` }}
+    >
+      <span
+        className="block rounded-full transition-transform"
+        style={{ width: 16, height: 16, background: "#fff", transform: on ? "translateX(18px)" : "translateX(0)" }}
+      />
+    </button>
+  );
+}
+
 export function Empty({ children }) {
   const C = useTheme();
   return (

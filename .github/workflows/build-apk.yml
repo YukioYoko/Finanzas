@@ -1,4 +1,4 @@
-name: Compilar APK de Android
+name: Compilar app de Android
 
 on:
   push:
@@ -9,8 +9,12 @@ permissions:
   contents: write
 
 jobs:
-  apk:
+  build:
     runs-on: ubuntu-latest
+    env:
+      # versionCode debe subir en cada envío a Play; run_number es incremental
+      VERSION_CODE: ${{ github.run_number }}
+      VERSION_NAME: 1.0.${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
 
@@ -32,14 +36,49 @@ jobs:
       - name: Sincronizar con Android
         run: npx cap sync android
 
-      - name: Compilar APK
+      - name: Preparar keystore de firma
+        id: keystore
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/finanzas.jks"
+            echo "path=$RUNNER_TEMP/finanzas.jks" >> "$GITHUB_OUTPUT"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Falta el secreto ANDROID_KEYSTORE_BASE64; se generará solo un APK debug (no sirve para Play)."
+          fi
+
+      - name: Compilar AAB y APK firmados (release)
+        if: steps.keystore.outputs.signed == 'true'
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ steps.keystore.outputs.path }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew bundleRelease assembleRelease
+          cp app/build/outputs/bundle/release/app-release.aab ../finanzas.aab
+          cp app/build/outputs/apk/release/app-release.apk ../finanzas.apk
+
+      - name: Compilar APK debug (sin secretos de firma)
+        if: steps.keystore.outputs.signed != 'true'
         run: |
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk ../finanzas.apk
 
-      - name: Renombrar APK
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk finanzas.apk
+      - name: Subir el AAB para Play Console
+        if: steps.keystore.outputs.signed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: finanzas-aab
+          path: finanzas.aab
+          retention-days: 30
 
       - name: Publicar release con el APK
         uses: softprops/action-gh-release@v2
@@ -47,4 +86,4 @@ jobs:
           tag_name: v1.0.${{ github.run_number }}
           name: Mis Finanzas v1.0.${{ github.run_number }}
           files: finanzas.apk
-          body: "APK de Mis Finanzas. Descárgalo en tu Android y ábrelo para instalar."
+          body: "APK de Mis Finanzas. Descárgalo en tu Android y ábrelo para instalar. El AAB para Play Store está en los artefactos de esta ejecución."

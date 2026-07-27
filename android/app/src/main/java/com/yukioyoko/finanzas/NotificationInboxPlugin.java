@@ -1,6 +1,8 @@
 package com.yukioyoko.finanzas;
 
+import android.content.ComponentName;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.provider.Settings;
 
 import com.getcapacitor.JSObject;
@@ -30,6 +32,25 @@ public class NotificationInboxPlugin extends Plugin {
         JSObject ret = new JSObject();
         ret.put("enabled", on);
         call.resolve(ret);
+    }
+
+    // Activa o desactiva el servicio que escucha notificaciones. Mientras esté
+    // desactivado, la app ni siquiera aparece en la lista de "Acceso a notificaciones"
+    // del sistema: la función queda totalmente apagada hasta que el usuario la habilite.
+    @PluginMethod
+    public void setServiceEnabled(PluginCall call) {
+        boolean enabled = Boolean.TRUE.equals(call.getBoolean("enabled", false));
+        try {
+            ComponentName cn = new ComponentName(getContext(), NotificationCaptureService.class);
+            int state = enabled
+                    ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                    : PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
+            getContext().getPackageManager()
+                    .setComponentEnabledSetting(cn, state, PackageManager.DONT_KILL_APP);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("No se pudo cambiar el servicio de notificaciones", e);
+        }
     }
 
     @PluginMethod

@@ -25,7 +25,7 @@ npx cap sync android
 npx cap open android   # requires Android Studio
 ```
 
-Pushing to `main` triggers `.github/workflows/build-apk.yml`, which builds the web app, syncs Capacitor, compiles a debug APK with Gradle, and publishes it to GitHub Releases.
+Pushing to `main` triggers `.github/workflows/build-apk.yml`. If the `ANDROID_KEYSTORE_BASE64` (+ password/alias secrets) are set, it builds a **signed** release AAB (uploaded as a workflow artifact for Play Console) and a signed release APK (published to GitHub Releases); `versionCode`/`versionName` come from the run number. Without the keystore secret it falls back to an unsigned debug APK. Release signing config lives in `android/app/build.gradle` (reads `ANDROID_KEYSTORE_*` env vars). Keystores are gitignored. See `PLAY_STORE.md` for the full publishing steps; the privacy policy is `docs/index.html` (served via GitHub Pages).
 
 ## Architecture
 
@@ -66,9 +66,9 @@ The `store` object (`src/App.jsx`) abstracts storage: it uses `window.storage` i
 
 ### Notification inbox (auto-captured charges)
 
-Android-only feature with custom native code in `android/app/src/main/java/com/yukioyoko/finanzas/`:
+Android-only, **opt-in** feature (off by default): the user turns it on with the `notifCaptureEnabled` toggle in Ajustes, which calls the plugin's `setServiceEnabled(true)`. The `NotificationCaptureService` is declared `android:enabled="false"` in the manifest and only enabled (via `PackageManager.setComponentEnabledSetting`) when the user opts in — so while off, the app doesn't even appear in the system's "Notification access" list. All capture UI in Movimientos and the load-time drain are gated on `notifCaptureEnabled`. Custom native code in `android/app/src/main/java/com/yukioyoko/finanzas/`:
 - `NotificationCaptureService` (a `NotificationListenerService`, requires the user to grant "Notification access" in system settings) captures any device notification containing a money amount into a local JSON file, recording package name (`app`), human-readable `appLabel`, `title`, `text`, and `time`.
-- `NotificationInboxPlugin` (registered in `MainActivity`) bridges to JS as the `NotificationInbox` plugin with `isEnabled()`, `openSettings()`, and `drain()` (returns captured items and clears the file).
+- `NotificationInboxPlugin` (registered in `MainActivity`) bridges to JS as the `NotificationInbox` plugin with `isEnabled()`, `openSettings()`, `setServiceEnabled(enabled)` (toggles the listener component), and `drain()` (returns captured items and clears the file).
 
 On the JS side (`registerPlugin("NotificationInbox")` in src/App.jsx), a load-time effect drains captures through `ingestCaptures` (in finance.js), which: (1) registers every seen app in `data.inboxApps` (`{ pkg: { label, enabled } }`) **disabled by default** — only enabled apps' notifications become inbox items, so the user allowlists their banks in the Movimientos tab; (2) dedups via `data.inboxSeen` (recent `pkg|amount|title` signatures within a 10-min window, kept 7 days) so the same charge isn't captured twice; (3) calls `parseCapturedNotification` to extract the amount, guess the card by last-4 digits (left blank when no match) and the type by keywords. The Movimientos tab shows an enable banner when access isn't granted, a per-app toggle list, and a "Por confirmar" list where the user completes title/category (and card if blank) to convert an inbox item into a real movement, or discards it. `data.inbox`, `inboxApps`, and `inboxSeen` persist with the rest of the state.
 
