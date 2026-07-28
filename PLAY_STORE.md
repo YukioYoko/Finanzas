@@ -3,48 +3,31 @@
 Todo lo del código ya está listo (firma, AAB, versionCode automático, icono, política de
 privacidad). Faltan unos pasos que solo tú puedes hacer.
 
-## 1. Generar tu keystore (llave de firma) — UNA sola vez
+**Nombre del paquete (applicationId):** `com.yukioyoko.finanzas` — regístralo igual en Play.
 
-⚠️ **Esta llave es única y permanente.** Si la pierdes, no podrás volver a actualizar la app
-en Play. Guárdala en un lugar seguro (y respalda también las contraseñas).
+## 1. Generar el keystore EN LÍNEA (sin instalar nada)
 
-Necesitas `keytool`, que viene con el **JDK de Java**. Si no lo tienes, dos opciones:
+Como no puedes instalar el JDK, se genera en GitHub Actions con el workflow
+`Generar keystore (una sola vez)`. Guarda los secretos solo (no expone el archivo, seguro en repo público).
 
-- **Opción A — Android Studio** (más fácil): _Build → Generate Signed Bundle/APK → Create new…_
-  Te crea el `.jks` con una interfaz. Anota alias y contraseñas.
-- **Opción B — Línea de comandos** (instala el JDK de Temurin y corre en PowerShell):
+1. Crea un **token fino**: GitHub → tu foto → **Settings → Developer settings →
+   Fine-grained tokens → Generate new token**. Repository access: solo `Finanzas`.
+   Permisos → Repository permissions → **Secrets: Read and write**. Genera y copia el token.
+2. En el repo: **Settings → Secrets and variables → Actions → New repository secret**,
+   crea `GH_PAT` con ese token.
+3. Ve a la pestaña **Actions → "Generar keystore (una sola vez)" → Run workflow**.
+4. Al terminar, ya quedaron creados los 4 secretos de firma
+   (`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_PASSWORD`, `ANDROID_KEY_ALIAS`).
+5. Borra el secreto `GH_PAT` (ya no se necesita) y, si quieres, el token en GitHub.
 
-```powershell
-keytool -genkeypair -v -keystore finanzas-release.jks -keyalg RSA -keysize 2048 `
-  -validity 10000 -alias finanzas `
-  -dname "CN=Mis Finanzas, O=YukioYoko, C=MX"
-```
-
-Te pedirá una contraseña para el keystore (y puedes usar la misma para la llave). **Anótalas.**
-
-## 2. Convertir el keystore a texto (base64) para GitHub
-
-```powershell
-[Convert]::ToBase64String([IO.File]::ReadAllBytes("finanzas-release.jks")) | Out-File keystore.b64.txt
-```
-
-(`keystore.b64.txt` y los `.jks` ya están en `.gitignore`; nunca se suben al repo.)
-
-## 3. Agregar los secretos en GitHub
-
-En el repo: **Settings → Secrets and variables → Actions → New repository secret**, crea estos 4:
-
-| Nombre | Valor |
-|---|---|
-| `ANDROID_KEYSTORE_BASE64` | todo el contenido de `keystore.b64.txt` |
-| `ANDROID_KEYSTORE_PASSWORD` | la contraseña del keystore |
-| `ANDROID_KEY_ALIAS` | `finanzas` |
-| `ANDROID_KEY_PASSWORD` | la contraseña de la llave (si usaste la misma, repítela) |
+> ℹ️ **¿Y si pierdo la llave?** Como usarás **Play App Signing** (paso 5), esta es solo tu
+> _llave de subida_. Si algún día se pierde, Google te deja **resetearla** desde la consola;
+> no perderías la app. Aun así, no borres los secretos del repo.
 
 En el siguiente push a `main`, el workflow compilará el **AAB firmado** (en los _artefactos_ de la
 ejecución) y el APK firmado (en Releases).
 
-## 4. Publicar la política de privacidad (GitHub Pages)
+## 2. Publicar la política de privacidad (GitHub Pages)
 
 En el repo: **Settings → Pages → Build and deployment → Source: Deploy from a branch →
 Branch: `main` / carpeta `/docs`**. Guarda. Tu URL será:
@@ -55,11 +38,11 @@ https://yukioyoko.github.io/Finanzas/
 
 Esa es la URL de política de privacidad que pide Play.
 
-## 5. En Play Console
+## 3. En Play Console
 
-1. **Crear app** → nombre "Mis Finanzas", idioma español, tipo App, gratis.
+1. **Crear app** → nombre "Mis Finanzas", idioma español, tipo App, gratis. Paquete: `com.yukioyoko.finanzas`.
 2. **Ficha principal**: descripción corta y larga, sube el icono `android/app/src/main/ic_launcher-playstore.png` (512×512), un gráfico destacado 1024×500, y capturas de pantalla del teléfono.
-3. **Política de privacidad**: pega la URL del paso 4.
+3. **Política de privacidad**: pega la URL del paso 2.
 4. **Seguridad de los datos**: declara que **no se recopilan ni se comparten datos** (todo es local).
 5. **Clasificación de contenido**: responde el cuestionario (app de finanzas, sin contenido sensible).
 6. **Prueba cerrada**: crea una pista de _Closed testing_, sube el **AAB** (descárgalo de los artefactos del workflow), invita **≥12 testers** y mantenla **14 días** (requisito para cuentas nuevas).
