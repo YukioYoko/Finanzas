@@ -1,8 +1,8 @@
 import { useState, useMemo } from "react";
 import { useTheme } from "../theme";
-import { FREQS } from "../constants";
+import { FREQS, WEEKDAYS } from "../constants";
 import { money, uid, todayISO, fmtDia } from "../utils/format";
-import { cardLabel, clampDay, nextChargeOf, cardTypeLabel } from "../lib/finance";
+import { cardLabel, clampDay, clampWeekday, nextChargeOf, cardTypeLabel, recurringFreqLabel, monthlyEquivalent } from "../lib/finance";
 import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty } from "../components/ui";
 
 // Formulario de cargo fijo, para crear (initial vacío) o editar (initial = cargo existente)
@@ -16,7 +16,10 @@ function FijoForm({ data, initial, onSave, onCancel }) {
   const [accountId, setAccountId] = useState(initCard ? initCard.accountId : "");
   const [cardId, setCardId] = useState(initial ? initial.cardId : "");
   const [categoryId, setCategoryId] = useState(initial ? (initial.categoryId || "") : "");
-  const [day, setDay] = useState(initial ? String(initial.day) : "");
+  const [unit, setUnit] = useState(initial && initial.unit === "semana" ? "semana" : "mes");
+  const [every, setEvery] = useState(initial && initial.every ? String(initial.every) : "1");
+  const [day, setDay] = useState(initial && initial.day ? String(initial.day) : "");
+  const [weekday, setWeekday] = useState(initial && clampWeekday(initial.weekday) != null ? String(initial.weekday) : "1");
   const [endDate, setEndDate] = useState(initial?.endDate || "");
   const [error, setError] = useState("");
   const accCards = cards.filter((c) => c.accountId === accountId);
@@ -27,15 +30,24 @@ function FijoForm({ data, initial, onSave, onCancel }) {
     if (!amt || amt <= 0) return setError("Escribe un monto mayor a cero.");
     if (!cardId) return setError("Elige la cuenta y tarjeta donde se cobra.");
     if (!categoryId) return setError("Elige una categoría.");
-    const d = clampDay(day);
-    if (!d) return setError("Escribe el día de cobro (1–31).");
+    const ev = Math.max(1, parseInt(every, 10) || 1);
+    let freqFields;
+    if (unit === "semana") {
+      const wd = clampWeekday(weekday);
+      if (wd == null) return setError("Elige el día de la semana.");
+      freqFields = { unit: "semana", every: ev, weekday: wd, day: null };
+    } else {
+      const d = clampDay(day);
+      if (!d) return setError("Escribe el día del mes (1–31).");
+      freqFields = { unit: "mes", every: ev, day: d, weekday: null };
+    }
     onSave({
       title: title.trim(),
       description: description.trim(),
       amount: amt,
       cardId,
       categoryId,
-      day: d,
+      ...freqFields,
       endDate: endDate || null,
     });
   };
@@ -55,12 +67,29 @@ function FijoForm({ data, initial, onSave, onCancel }) {
         <Field label="Descripción (opcional)">
           <TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Detalles extra" />
         </Field>
-        <Field label="Monto mensual (MXN)">
+        <Field label="Monto (MXN)">
           <TextInput type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" />
         </Field>
-        <Field label="Día de cobro (1–31)">
-          <TextInput type="number" min="1" max="31" value={day} onChange={(e) => setDay(e.target.value)} placeholder="Ej. 16" />
+        <Field label="Repetir cada">
+          <div className="flex gap-2">
+            <TextInput type="number" min="1" max="52" value={every} onChange={(e) => setEvery(e.target.value)} style={{ width: 70 }} />
+            <Select value={unit} onChange={(e) => setUnit(e.target.value)}>
+              <option value="semana">semana(s)</option>
+              <option value="mes">mes(es)</option>
+            </Select>
+          </div>
         </Field>
+        {unit === "semana" ? (
+          <Field label="Día de la semana">
+            <Select value={weekday} onChange={(e) => setWeekday(e.target.value)}>
+              {WEEKDAYS.map((w) => <option key={w.id} value={w.id}>{w.label}</option>)}
+            </Select>
+          </Field>
+        ) : (
+          <Field label="Día del mes (1–31)">
+            <TextInput type="number" min="1" max="31" value={day} onChange={(e) => setDay(e.target.value)} placeholder="Ej. 16" />
+          </Field>
+        )}
         <Field label="Cuenta">
           <Select value={accountId} onChange={(e) => { setAccountId(e.target.value); setCardId(""); }}>
             <option value="">— Elegir cuenta —</option>
@@ -94,7 +123,7 @@ function FijoForm({ data, initial, onSave, onCancel }) {
         </Field>
       </div>
       <p className="text-xs mt-2" style={{ color: C.faint }}>
-        El gasto se registra automáticamente cada mes en el día de cobro. Si el mes no tiene ese día, se usa el último día del mes. Con fecha de fin, se deja de cobrar después de esa fecha.
+        El gasto se registra solo según la frecuencia que elijas (cada semana, cada mes, cada N meses…). Si el mes no tiene ese día, se usa el último día del mes. Con fecha de fin, se deja de cobrar después de esa fecha.
       </p>
       {error && <p className="text-xs mt-3" style={{ color: C.red }}>{error}</p>}
       <div className="mt-4">
@@ -115,7 +144,7 @@ export default function Fijos({ data, update }) {
   const catById = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c])), [categories]);
 
   const activos = recurring.filter((r) => nextChargeOf(r) !== null);
-  const totalMensual = activos.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const totalMensual = activos.reduce((s, r) => s + monthlyEquivalent(r), 0);
 
   const addFijo = (fields) => {
     update({ recurring: [...recurring, { id: uid(), createdAt: todayISO(), lastApplied: null, ...fields }] });
@@ -135,12 +164,12 @@ export default function Fijos({ data, update }) {
   return (
     <div className="space-y-4">
       <SectionTitle right={<Btn onClick={() => setShow((v) => !v)}>{show ? "Cancelar" : "+ Nuevo cargo fijo"}</Btn>}>
-        Cargos fijos mensuales
+        Cargos fijos
       </SectionTitle>
 
       {activos.length > 0 && (
         <Card className="flex items-center justify-between">
-          <p className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>Total fijo al mes</p>
+          <p className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>Total fijo al mes (aprox.)</p>
           <Amount value={totalMensual} sign="-" size="text-xl" />
         </Card>
       )}
@@ -148,7 +177,7 @@ export default function Fijos({ data, update }) {
       {show && <FijoForm data={data} onSave={addFijo} onCancel={() => setShow(false)} />}
 
       {recurring.length === 0 && !show ? (
-        <Empty>Sin cargos fijos. Agrega tus suscripciones y servicios con "+ Nuevo cargo fijo" y se registrarán solos cada mes.</Empty>
+        <Empty>Sin cargos fijos. Agrega tus suscripciones y servicios con "+ Nuevo cargo fijo" y se registrarán solos según su frecuencia.</Empty>
       ) : (
         <div className="space-y-2">
           {recurring.map((r) => {
@@ -164,7 +193,7 @@ export default function Fijos({ data, update }) {
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-medium truncate">{r.title || r.description}</span>
                     {cat && <Chip>{cat.name}</Chip>}
-                    <Chip color={C.faint}>Cada día {clampDay(r.day)}</Chip>
+                    <Chip color={C.faint}>{recurringFreqLabel(r)}</Chip>
                     {r.endDate && <Chip color={C.amber} bg={C.amberSoft}>Hasta {r.endDate}</Chip>}
                     {!next && <Chip color={C.faint}>Finalizado</Chip>}
                   </div>

@@ -78,15 +78,18 @@ export default function FinanzasApp() {
   }, [recurringCount]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Importa las notificaciones capturadas del celular a la bandeja "Por confirmar"
-  // (solo si el usuario activó la función opcional de lectura de notificaciones)
+  // (solo si el usuario activó la función opcional de lectura de notificaciones).
+  // Se ejecuta al abrir la app y cada vez que vuelve a primer plano, para que los
+  // cargos aparezcan aunque hayan llegado con la app en segundo plano.
   const loaded = !!data;
   const captureOn = !!data?.notifCaptureEnabled;
   useEffect(() => {
     if (!loaded || !captureOn || !Capacitor.isNativePlatform()) return;
-    (async () => {
+    let cancelled = false;
+    const drain = async () => {
       try {
         const { items } = await NotificationInbox.drain();
-        if (!items || !items.length) return;
+        if (cancelled || !items || !items.length) return;
         setData((d) => {
           const { inboxAdd, inboxApps, inboxSeen, changed } = ingestCaptures(items, d, Date.now());
           if (!changed) return d;
@@ -95,7 +98,11 @@ export default function FinanzasApp() {
       } catch (e) {
         // Plugin no disponible o error nativo: la app sigue sin bandeja
       }
-    })();
+    };
+    drain();
+    const onVisible = () => { if (document.visibilityState === "visible") drain(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { cancelled = true; document.removeEventListener("visibilitychange", onVisible); };
   }, [loaded, captureOn]);
 
   const mode = data?.theme === "light" ? "light" : "dark";
