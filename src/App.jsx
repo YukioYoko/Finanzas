@@ -230,7 +230,7 @@ export default function FinanzasApp() {
               aria-hidden="true"
             />
             <aside
-              className="absolute right-0 top-0 h-full w-full max-w-sm overflow-y-auto p-4"
+              className="absolute right-0 top-0 h-full w-full max-w-sm overflow-y-auto px-4 pb-6"
               style={{ background: C.bg, borderLeft: `1px solid ${C.border}`, animation: "slide-in-right 0.2s ease-out" }}
               role="dialog"
               aria-label="Ajustes"

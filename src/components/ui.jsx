@@ -1,15 +1,68 @@
 // Primitivas de UI de la app. Reutiliza estas en lugar de escribir
 // <input>/<button> con estilos sueltos: todas leen sus colores de useTheme().
+import { useState } from "react";
 import { useTheme } from "../theme";
 import { money } from "../utils/format";
 
-export function Field({ label, children }) {
+export function Field({ label, hint, children }) {
   const C = useTheme();
   return (
     <label className="block">
-      <span className="block text-xs uppercase tracking-wider mb-1" style={{ color: C.muted }}>{label}</span>
+      <span className="flex items-center gap-1.5 text-xs uppercase tracking-wider mb-1" style={{ color: C.muted }}>
+        {label}
+        {hint}
+      </span>
       {children}
     </label>
+  );
+}
+
+// Icono "?" que abre un pequeño cuadro de diálogo con una explicación.
+// Pensado para ir junto a la etiqueta de un Field (prop `hint`).
+export function InfoHint({ title, children }) {
+  const C = useTheme();
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(true); }}
+        aria-label={`Qué es ${title}`}
+        className="inline-flex items-center justify-center rounded-full shrink-0 transition-opacity hover:opacity-80"
+        style={{ width: 16, height: 16, border: `1px solid ${C.border}`, color: C.muted, fontSize: 10, fontWeight: 700, lineHeight: 1 }}
+      >
+        ?
+      </button>
+      {open && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          onClick={(e) => { e.preventDefault(); setOpen(false); }}
+          role="dialog"
+          aria-label={title}
+        >
+          <div className="absolute inset-0" style={{ background: "rgba(0,0,0,0.55)" }} aria-hidden="true" />
+          <div
+            className="relative rounded-xl p-4 w-full max-w-xs"
+            style={{ background: C.surface, border: `1px solid ${C.border}` }}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+          >
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <h4 className="text-sm font-medium normal-case tracking-normal" style={{ color: C.text }}>{title}</h4>
+              <button
+                type="button"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(false); }}
+                aria-label="Cerrar"
+                className="shrink-0"
+                style={{ color: C.muted, fontSize: 14, lineHeight: 1 }}
+              >
+                ✕
+              </button>
+            </div>
+            <p className="text-sm leading-relaxed normal-case tracking-normal" style={{ color: C.muted }}>{children}</p>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

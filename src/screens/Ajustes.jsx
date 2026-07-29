@@ -125,7 +125,17 @@ export default function Ajustes({ data, update, onClose, onShowTour, onImport })
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      {/* Encabezado fijo: separado de la barra de estado (safe-area) y anclado
+          arriba del panel al hacer scroll, como el header principal de la app. */}
+      <div
+        className="sticky top-0 z-10 -mx-4 px-4 flex items-center justify-between"
+        style={{
+          background: C.bg,
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 16px)",
+          paddingBottom: "12px",
+          borderBottom: `1px solid ${C.borderSoft}`,
+        }}
+      >
         <h2 className="text-sm uppercase tracking-widest" style={{ color: C.accent }}>Ajustes</h2>
         <button
           onClick={onClose}

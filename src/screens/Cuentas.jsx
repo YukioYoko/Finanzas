@@ -2,7 +2,19 @@ import { useState } from "react";
 import { useTheme } from "../theme";
 import { money, uid, todayISO } from "../utils/format";
 import { balanceOfCard, clampDay, isDebtType, cardTypeLabel } from "../lib/finance";
-import { Field, TextInput, Select, Btn, Chip, Card, SectionTitle, Empty } from "../components/ui";
+import { Field, TextInput, Select, Btn, Chip, Card, SectionTitle, Empty, InfoHint } from "../components/ui";
+
+// Explicaciones reutilizables para las fechas de la tarjeta de crédito
+const HINT_CORTE = (
+  <InfoHint title="Día de corte">
+    Es el día del mes en que tu banco cierra el periodo y genera tu estado de cuenta. Todo lo que gastes a partir de ese día ya cuenta para el estado de cuenta del mes siguiente. Lo encuentras en tu app del banco o en tu estado de cuenta.
+  </InfoHint>
+);
+const HINT_PAGO = (
+  <InfoHint title="Día límite de pago">
+    Es la fecha máxima para pagar tu tarjeta sin que te cobren intereses. Si pagas el total antes de ese día, no generas intereses. Suele caer unos 20 días después del corte.
+  </InfoHint>
+);
 
 export default function Cuentas({ data, update }) {
   const C = useTheme();
@@ -334,10 +346,10 @@ export default function Cuentas({ data, update }) {
                   )}
                   {cardType === "credito" && (
                     <>
-                      <Field label="Día de corte (1–31)">
+                      <Field label="Día de corte (1–31)" hint={HINT_CORTE}>
                         <TextInput type="number" min="1" max="31" value={cardCutDay} onChange={(e) => setCardCutDay(e.target.value)} placeholder="Ej. 15" />
                       </Field>
-                      <Field label="Día límite de pago (1–31)">
+                      <Field label="Día límite de pago (1–31)" hint={HINT_PAGO}>
                         <TextInput type="number" min="1" max="31" value={cardPayDay} onChange={(e) => setCardPayDay(e.target.value)} placeholder="Ej. 5" />
                       </Field>
                     </>
@@ -442,10 +454,10 @@ export default function Cuentas({ data, update }) {
                             )}
                             {isCredit && (
                               <>
-                                <Field label="Día de corte (1–31)">
+                                <Field label="Día de corte (1–31)" hint={HINT_CORTE}>
                                   <TextInput type="number" min="1" max="31" value={newCutDay} onChange={(e) => setNewCutDay(e.target.value)} placeholder="Ej. 15" />
                                 </Field>
-                                <Field label="Día límite de pago (1–31)">
+                                <Field label="Día límite de pago (1–31)" hint={HINT_PAGO}>
                                   <TextInput type="number" min="1" max="31" value={newPayDay} onChange={(e) => setNewPayDay(e.target.value)} placeholder="Ej. 5" />
                                 </Field>
                               </>
