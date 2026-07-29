@@ -1,5 +1,7 @@
 package com.yukioyoko.finanzas;
 
+import android.content.ComponentName;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -11,7 +13,20 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(NotificationInboxPlugin.class);
         super.onCreate(savedInstanceState);
+        resetNotificationServiceState();
         applyWebViewSettings();
+    }
+
+    // Versiones anteriores activaban/desactivaban el servicio de notificaciones por
+    // código, y ese estado persiste entre actualizaciones. Lo devolvemos a su valor por
+    // defecto (habilitado según el manifiesto) para que no quede atascado en "desactivado".
+    private void resetNotificationServiceState() {
+        try {
+            ComponentName cn = new ComponentName(this, NotificationCaptureService.class);
+            getPackageManager().setComponentEnabledSetting(
+                    cn, PackageManager.COMPONENT_ENABLED_STATE_DEFAULT, PackageManager.DONT_KILL_APP);
+        } catch (Exception ignored) {
+        }
     }
 
     // Desactiva el zoom por gestos y adapta el tamaño de letra al del sistema,
