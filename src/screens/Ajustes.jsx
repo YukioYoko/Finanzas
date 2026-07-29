@@ -78,6 +78,8 @@ const TERMS = [
 export default function Ajustes({ data, update, onClose, onShowTour, onImport }) {
   const C = useTheme();
   const mode = data.theme === "light" ? "light" : "dark";
+  // Versión de la app (inyectada por Vite al compilar); útil para saber qué build tienes
+  const appVersion = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "";
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null); // { type: "ok" | "error", text }
@@ -222,7 +224,7 @@ export default function Ajustes({ data, update, onClose, onShowTour, onImport })
 
       {/* Acerca de */}
       <p className="text-xs text-center" style={{ color: C.faint }}>
-        Mis Finanzas · hecha con React + Capacitor · tus datos nunca salen de tu dispositivo
+        Mis Finanzas{appVersion ? ` v${appVersion}` : ""} · tus datos nunca salen de tu dispositivo
       </p>
     </div>
   );
