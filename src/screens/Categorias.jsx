@@ -56,7 +56,7 @@ export default function Categorias({ data, update }) {
         const list = categories.filter((c) => c.freq === f.id);
         return (
           <div key={f.id}>
-            <h3 className="text-xs uppercase tracking-widest mb-2" style={{ color: C.muted }}>{f.label}es</h3>
+            <h3 className="text-xs uppercase tracking-widest mb-2" style={{ color: C.muted }}>{f.plural}</h3>
             {list.length === 0 ? (
               <p className="text-xs mb-2" style={{ color: C.faint }}>Sin categorías de este tipo.</p>
             ) : (

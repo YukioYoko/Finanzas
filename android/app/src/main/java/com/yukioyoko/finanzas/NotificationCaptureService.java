@@ -29,8 +29,25 @@ public class NotificationCaptureService extends NotificationListenerService {
 
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
+        capture(sbn);
+    }
+
+    // Al conectar el listener (p. ej. justo después de conceder el permiso), captura
+    // también las notificaciones que ya están en la barra, no solo las nuevas.
+    @Override
+    public void onListenerConnected() {
         try {
-            if (sbn.getPackageName().equals(getPackageName())) return;
+            StatusBarNotification[] active = getActiveNotifications();
+            if (active != null) {
+                for (StatusBarNotification sbn : active) capture(sbn);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void capture(StatusBarNotification sbn) {
+        try {
+            if (sbn == null || sbn.getPackageName().equals(getPackageName())) return;
             Notification n = sbn.getNotification();
             if (n == null || n.extras == null) return;
             Bundle extras = n.extras;

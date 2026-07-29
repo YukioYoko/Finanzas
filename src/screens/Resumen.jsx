@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useTheme } from "../theme";
 import { MONTH_NAMES } from "../constants";
-import { money, uid, todayISO, fmtDia } from "../utils/format";
+import { money, uid, todayISO, isoOf, fmtDia } from "../utils/format";
 import { cardLabel, movTotal, balanceOfCard, creditStatement, clampDay, isDebtType } from "../lib/finance";
 import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty } from "../components/ui";
 import GraficaMensual from "../components/GraficaMensual";
@@ -42,6 +42,13 @@ export default function Resumen({ data, update }) {
         acc[key] = (acc[key] || 0) + movTotal(m);
         return acc;
       }, {});
+
+  // Gastos semanales: agrupados por la semana en curso (lunes a hoy)
+  const startOfWeek = (d) => { const m = new Date(d); const dw = m.getDay(); m.setDate(m.getDate() + (dw === 0 ? -6 : 1 - dw)); m.setHours(0, 0, 0, 0); return m; };
+  const weekStartISO = isoOf(startOfWeek(now));
+  const semanales = counted
+    .filter((m) => m.type === "gasto" && !m.adjust && !m.transfer && catById[m.categoryId]?.freq === "semanal" && m.date >= weekStartISO)
+    .reduce((acc, m) => { const k = m.categoryId || "sin"; acc[k] = (acc[k] || 0) + movTotal(m); return acc; }, {});
 
   const mensuales = groupByFreq("mensual", ym);
   const anuales = groupByFreq("anual", year);
@@ -244,7 +251,8 @@ export default function Resumen({ data, update }) {
       {/* Gastos por frecuencia */}
       <div>
         <SectionTitle>Gastos por tipo</SectionTitle>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FreqBlock title="Semanales" group={semanales} note="Esta semana" />
           <FreqBlock title="Mensuales" group={mensuales} note={`Mes actual (${MONTH_NAMES[now.getMonth()]})`} />
           <FreqBlock title="Anuales" group={anuales} note={`Acumulado ${year}`} />
           <FreqBlock title="Esporádicos" group={esporadicos} note={`Mes actual (${MONTH_NAMES[now.getMonth()]})`} />

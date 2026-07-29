@@ -93,25 +93,64 @@ export function creditStatement(card, movements, today = new Date()) {
 }
 
 // ---------- Cargos fijos mensuales (suscripciones, servicios…) ----------
-// Primera ocurrencia del día de cobro en o después de la fecha dada
-function firstOccurrenceOnOrAfter(dateStr, day) {
-  const from = new Date(dateStr + "T00:00:00");
-  const d = dateWithDay(from.getFullYear(), from.getMonth(), day);
-  return d >= from ? d : dateWithDay(from.getFullYear(), from.getMonth() + 1, day);
-}
+// ---- Frecuencia de un cargo fijo: "mes" (día 1–31) o "semana" (día 0–6), cada N ----
+export const clampWeekday = (v) => { const n = parseInt(v, 10); return n >= 0 && n <= 6 ? n : null; };
+const recUnit = (r) => (r.unit === "semana" ? "semana" : "mes");   // por defecto mensual (compat)
+const recEvery = (r) => { const n = parseInt(r.every, 10); return n >= 1 ? n : 1; };
+const recValid = (r) => (recUnit(r) === "semana" ? clampWeekday(r.weekday) != null : !!clampDay(r.day));
 
-// Siguiente ocurrencia estrictamente después de la fecha dada
-function nextOccurrence(dateStr, day) {
-  const after = new Date(dateStr + "T00:00:00");
-  const d = dateWithDay(after.getFullYear(), after.getMonth(), day);
-  return d > after ? d : dateWithDay(after.getFullYear(), after.getMonth() + 1, day);
-}
-
-// Próximo cobro pendiente de un cargo fijo (null si ya terminó)
-export function nextChargeOf(r) {
+// Primera ocurrencia en o después de createdAt
+function recFirstOccurrence(r) {
+  const start = new Date((r.createdAt || todayISO()) + "T00:00:00");
+  if (recUnit(r) === "semana") {
+    const wd = clampWeekday(r.weekday);
+    const d = new Date(start);
+    d.setDate(d.getDate() + ((wd - d.getDay() + 7) % 7)); // próximo día de la semana pedido
+    return d;
+  }
   const day = clampDay(r.day);
-  if (!day) return null;
-  const cursor = r.lastApplied ? nextOccurrence(r.lastApplied, day) : firstOccurrenceOnOrAfter(r.createdAt, day);
+  const d = dateWithDay(start.getFullYear(), start.getMonth(), day);
+  return d >= start ? d : dateWithDay(start.getFullYear(), start.getMonth() + recEvery(r), day);
+}
+
+// Siguiente ocurrencia estrictamente después de dateStr
+function recNextOccurrence(r, dateStr) {
+  const after = new Date(dateStr + "T00:00:00");
+  const every = recEvery(r);
+  if (recUnit(r) === "semana") {
+    const d = new Date(after);
+    d.setDate(d.getDate() + 7 * every);
+    return d;
+  }
+  return dateWithDay(after.getFullYear(), after.getMonth() + every, clampDay(r.day));
+}
+
+// Texto legible de la frecuencia, p. ej. "Cada 3 meses · día 15" o "Cada semana · lunes"
+export function recurringFreqLabel(r) {
+  const every = recEvery(r);
+  if (recUnit(r) === "semana") {
+    const names = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+    const wd = clampWeekday(r.weekday);
+    const base = every === 1 ? "Cada semana" : `Cada ${every} semanas`;
+    return wd != null ? `${base} · ${names[wd]}` : base;
+  }
+  const day = clampDay(r.day);
+  const base = every === 1 ? "Cada mes" : `Cada ${every} meses`;
+  return day ? `${base} · día ${day}` : base;
+}
+
+// Monto equivalente al mes (para sumar frecuencias distintas de forma comparable)
+export function monthlyEquivalent(r) {
+  const amt = Number(r.amount) || 0;
+  const every = recEvery(r);
+  if (recUnit(r) === "semana") return (amt * 52) / 12 / every; // ~4.33 semanas por mes
+  return amt / every;
+}
+
+// Próximo cobro pendiente de un cargo fijo (null si ya terminó o es inválido)
+export function nextChargeOf(r) {
+  if (!recValid(r)) return null;
+  const cursor = r.lastApplied ? recNextOccurrence(r, r.lastApplied) : recFirstOccurrence(r);
   if (r.endDate && cursor > new Date(r.endDate + "T00:00:00")) return null;
   return cursor;
 }
@@ -122,13 +161,12 @@ export function applyRecurring(data) {
   let movements = data.movements;
   let changed = false;
   const recurring = (data.recurring || []).map((r) => {
-    const day = clampDay(r.day);
-    if (!day) return r;
+    if (!recValid(r)) return r;
     const end = r.endDate ? new Date(r.endDate + "T00:00:00") : null;
-    let cursor = r.lastApplied ? nextOccurrence(r.lastApplied, day) : firstOccurrenceOnOrAfter(r.createdAt, day);
+    let cursor = r.lastApplied ? recNextOccurrence(r, r.lastApplied) : recFirstOccurrence(r);
     let last = r.lastApplied;
     const generated = [];
-    while (cursor <= today && (!end || cursor <= end) && generated.length < 120) {
+    while (cursor <= today && (!end || cursor <= end) && generated.length < 200) {
       const dateStr = isoOf(cursor);
       generated.push({
         id: uid(),
@@ -145,7 +183,7 @@ export function applyRecurring(data) {
         recurringId: r.id,
       });
       last = dateStr;
-      cursor = nextOccurrence(dateStr, day);
+      cursor = recNextOccurrence(r, dateStr);
     }
     if (!generated.length) return r;
     movements = [...generated, ...movements];
