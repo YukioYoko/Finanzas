@@ -125,6 +125,87 @@ function InboxItem({ item, data, onConfirm, onDiscard }) {
   );
 }
 
+// Transferencia detectada entre dos notificaciones (gasto + ingreso del mismo monto)
+function InboxTransferItem({ item, data, onConfirm, onDiscard }) {
+  const C = useTheme();
+  const { accounts, cards } = data;
+  const fromCard0 = cards.find((c) => c.id === item.fromCardId);
+  const toCard0 = cards.find((c) => c.id === item.toCardId);
+  const [fromAcc, setFromAcc] = useState(fromCard0 ? fromCard0.accountId : "");
+  const [fromCard, setFromCard] = useState(item.fromCardId || "");
+  const [toAcc, setToAcc] = useState(toCard0 ? toCard0.accountId : "");
+  const [toCard, setToCard] = useState(item.toCardId || "");
+  const [amount, setAmount] = useState(String(item.amount));
+  const [date, setDate] = useState(item.date);
+  const [title, setTitle] = useState("");
+  const [error, setError] = useState("");
+  const fromCards = cards.filter((c) => c.accountId === fromAcc);
+  const toCards = cards.filter((c) => c.accountId === toAcc);
+
+  const confirm = () => {
+    const amt = parseFloat(amount);
+    if (!fromCard) return setError("Elige la cuenta y tarjeta de origen.");
+    if (!toCard) return setError("Elige la cuenta y tarjeta de destino.");
+    if (fromCard === toCard) return setError("El origen y el destino deben ser distintos.");
+    if (!amt || amt <= 0) return setError("Escribe un monto mayor a cero.");
+    onConfirm(item, { transfer: true, fromCard, toCard, amount: amt, date, title: title.trim() });
+  };
+
+  return (
+    <Card style={{ borderColor: C.blue }}>
+      <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Chip color={C.blue}>Transferencia detectada</Chip>
+          <Amount value={parseFloat(amount) || 0} sign="" size="text-sm" />
+        </div>
+        <Btn kind="danger" onClick={() => onDiscard(item)} style={{ padding: "4px 8px" }}>Descartar</Btn>
+      </div>
+      {item.text && <p className="text-xs mb-3" style={{ color: C.faint }}>{item.text}</p>}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Field label="Cuenta origen">
+          <Select value={fromAcc} onChange={(e) => { setFromAcc(e.target.value); setFromCard(""); }}>
+            <option value="">— Elegir cuenta —</option>
+            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
+          </Select>
+        </Field>
+        <Field label="Tarjeta origen">
+          <Select value={fromCard} onChange={(e) => setFromCard(e.target.value)} disabled={!fromAcc}>
+            <option value="">{fromAcc ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
+            {fromCards.map((c) => <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}</option>)}
+          </Select>
+        </Field>
+        <Field label="Cuenta destino">
+          <Select value={toAcc} onChange={(e) => { setToAcc(e.target.value); setToCard(""); }}>
+            <option value="">— Elegir cuenta —</option>
+            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
+          </Select>
+        </Field>
+        <Field label="Tarjeta destino">
+          <Select value={toCard} onChange={(e) => setToCard(e.target.value)} disabled={!toAcc}>
+            <option value="">{toAcc ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
+            {toCards.filter((c) => c.id !== fromCard).map((c) => <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}</option>)}
+          </Select>
+        </Field>
+        <Field label="Monto (MXN)">
+          <TextInput type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
+        </Field>
+        <Field label="Fecha">
+          <TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </Field>
+        <div className="sm:col-span-2">
+          <Field label="Título (opcional)">
+            <TextInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Se genera solo si lo dejas vacío" />
+          </Field>
+        </div>
+      </div>
+      {error && <p className="text-xs mt-2" style={{ color: C.red }}>{error}</p>}
+      <div className="mt-3">
+        <Btn onClick={confirm}>Confirmar transferencia</Btn>
+      </div>
+    </Card>
+  );
+}
+
 // Editor inline de un movimiento existente
 function MovEditor({ mov, data, onSave, onCancel }) {
   const C = useTheme();
@@ -353,6 +434,21 @@ export default function Movimientos({ data, update }) {
   const captureOn = !!data.notifCaptureEnabled;
 
   const confirmInbox = (item, fields) => {
+    // Transferencia detectada: crea las dos patas (gasto en origen, ingreso en destino)
+    if (fields.transfer) {
+      const from = cards.find((c) => c.id === fields.fromCard);
+      const to = cards.find((c) => c.id === fields.toCard);
+      const tid = uid();
+      const base = { categoryId: null, date: fields.date, months: 1, commission: 0, transfer: true, transferId: tid, description: "" };
+      return update({
+        movements: [
+          { ...base, id: uid(), cardId: fields.fromCard, type: "gasto", amount: fields.amount, title: fields.title || `Transferencia a ${to?.name || "?"}` },
+          { ...base, id: uid(), cardId: fields.toCard, type: "ingreso", amount: fields.amount, title: fields.title || `Transferencia desde ${from?.name || "?"}` },
+          ...movements,
+        ],
+        inbox: inbox.filter((i) => i.id !== item.id),
+      });
+    }
     update({
       movements: [{ id: uid(), months: 1, commission: 0, ...fields }, ...movements],
       inbox: inbox.filter((i) => i.id !== item.id),
@@ -482,7 +578,9 @@ export default function Movimientos({ data, update }) {
           </h3>
           <div className="space-y-2">
             {inbox.map((item) => (
-              <InboxItem key={item.id} item={item} data={data} onConfirm={confirmInbox} onDiscard={discardInbox} />
+              item.kind === "transfer"
+                ? <InboxTransferItem key={item.id} item={item} data={data} onConfirm={confirmInbox} onDiscard={discardInbox} />
+                : <InboxItem key={item.id} item={item} data={data} onConfirm={confirmInbox} onDiscard={discardInbox} />
             ))}
           </div>
         </div>

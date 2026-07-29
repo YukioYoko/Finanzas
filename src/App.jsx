@@ -125,8 +125,15 @@ export default function FinanzasApp() {
     <ThemeContext.Provider value={C}>
       <div className="min-h-screen" style={{ background: C.bg, color: C.text }}>
         <div className="max-w-4xl mx-auto px-4 pb-16">
-          {/* Header */}
-          <header className="pt-8 pb-5 flex items-start justify-between">
+          {/* Header fijo: separado de la barra de estado (safe-area) y pegado arriba al hacer scroll */}
+          <header
+            className="sticky top-0 z-30 pb-4 flex items-start justify-between"
+            style={{
+              background: C.bg,
+              paddingTop: "calc(env(safe-area-inset-top, 0px) + 18px)",
+              borderBottom: `1px solid ${C.borderSoft}`,
+            }}
+          >
             <div>
               <div className="flex items-baseline gap-3">
                 <h1 className="text-2xl font-semibold tracking-tight">

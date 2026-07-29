@@ -267,25 +267,45 @@ export function parseCapturedNotification(item, cards) {
   };
 }
 
+// Cuando no se pudo identificar la tarjeta por los últimos 4 dígitos, intenta
+// adivinarla emparejando el nombre de la app del banco con el banco/nombre de una
+// cuenta. Solo devuelve una tarjeta si es inequívoco (la cuenta tiene una sola
+// tarjeta usable de débito o crédito).
+function guessCardFromApp(appLabel, accounts, cards) {
+  if (!appLabel) return "";
+  const label = appLabel.toLowerCase();
+  const acc = accounts.find((a) => {
+    const bank = (a.bank || "").toLowerCase();
+    const name = (a.name || "").toLowerCase();
+    return (bank && (label.includes(bank) || bank.includes(label)))
+        || (name.length >= 3 && (label.includes(name) || name.includes(label)));
+  });
+  if (!acc) return "";
+  const accCards = cards.filter((c) => c.accountId === acc.id && (c.type === "debito" || c.type === "credito"));
+  return accCards.length === 1 ? accCards[0].id : "";
+}
+
 // Procesa las notificaciones capturadas del sistema:
 // - registra cada app detectada (deshabilitada por defecto: solo se lee de las que el usuario habilite)
 // - solo convierte en movimiento por confirmar las de apps habilitadas
-// - evita duplicados: misma app + mismo monto + mismo texto dentro de una ventana de tiempo
+// - dedup: misma app+monto+texto, o misma TARJETA+monto aunque venga de otra app, dentro de una ventana
+// - si no se identifica la tarjeta, la adivina por la app del banco
+// - si detecta un gasto y un ingreso del mismo monto en cuentas distintas, lo marca como transferencia
 export function ingestCaptures(items, data, now = Date.now()) {
-  const DUP_WINDOW = 10 * 60 * 1000;          // 10 min: mismo cargo repetido = duplicado
+  const DUP_WINDOW = 10 * 60 * 1000;          // 10 min
   const SEEN_TTL = 7 * 24 * 60 * 60 * 1000;   // recuerda firmas 7 días
 
   const apps = { ...(data.inboxApps || {}) };
   const seen = (data.inboxSeen || []).filter((s) => now - s.time < SEEN_TTL);
   const existingIds = new Set((data.inbox || []).map((i) => i.id));
-  const inboxAdd = [];
+  const cardById = Object.fromEntries(data.cards.map((c) => [c.id, c]));
+  const candidates = []; // { ...parsed, _t }
   let changed = false;
 
   for (const it of items || []) {
     const pkg = it.app || "";
     if (!pkg) continue;
 
-    // Registrar app nueva (deshabilitada) o completar su nombre legible
     if (!apps[pkg]) {
       apps[pkg] = { label: it.appLabel || pkg, enabled: false };
       changed = true;
@@ -293,21 +313,49 @@ export function ingestCaptures(items, data, now = Date.now()) {
       apps[pkg] = { ...apps[pkg], label: it.appLabel };
       changed = true;
     }
-    if (!apps[pkg].enabled) continue; // solo apps habilitadas
+    if (!apps[pkg].enabled) continue;
 
     const parsed = parseCapturedNotification(it, data.cards);
     if (!parsed || existingIds.has(parsed.id)) continue;
+    if (!parsed.cardId) parsed.cardId = guessCardFromApp(it.appLabel || apps[pkg].label, data.accounts, data.cards);
 
-    const sig = `${pkg}|${parsed.amount}|${(it.title || "").trim().toLowerCase()}`;
     const t = Number(it.time) || now;
-    const dup = seen.some((s) => s.sig === sig && Math.abs(t - s.time) < DUP_WINDOW);
+    const title = (it.title || "").trim().toLowerCase();
+    const sigs = [`${pkg}|${parsed.amount}|${title}`];
+    if (parsed.cardId) sigs.push(`card|${parsed.cardId}|${parsed.amount}`); // dedup entre apps por tarjeta+monto
+    const dup = sigs.some((sg) => seen.some((s) => s.sig === sg && Math.abs(t - s.time) < DUP_WINDOW))
+      || candidates.some((c) => c.cardId && c.cardId === parsed.cardId && c.amount === parsed.amount && c.type === parsed.type && Math.abs(c._t - t) < DUP_WINDOW);
     if (dup) continue;
 
-    seen.push({ sig, time: t });
+    sigs.forEach((sg) => seen.push({ sig: sg, time: t }));
     existingIds.add(parsed.id);
-    inboxAdd.push(parsed);
+    candidates.push({ ...parsed, _t: t });
     changed = true;
   }
+
+  // Empareja gasto + ingreso del mismo monto en cuentas distintas → transferencia
+  const transfers = [];
+  const used = new Set();
+  for (let i = 0; i < candidates.length; i++) {
+    if (used.has(i) || !candidates[i].cardId) continue;
+    const a = candidates[i];
+    const accA = cardById[a.cardId]?.accountId;
+    for (let j = i + 1; j < candidates.length; j++) {
+      if (used.has(j)) continue;
+      const b = candidates[j];
+      if (!b.cardId || b.type === a.type || a.amount !== b.amount) continue;
+      const accB = cardById[b.cardId]?.accountId;
+      if (!accA || !accB || accA === accB) continue;               // deben ser cuentas distintas
+      if (Math.abs(a._t - b._t) > DUP_WINDOW) continue;
+      const g = a.type === "gasto" ? a : b;
+      const inn = a.type === "gasto" ? b : a;
+      transfers.push({ id: g.id, kind: "transfer", amount: a.amount, date: g.date, fromCardId: g.cardId, toCardId: inn.cardId, text: g.text });
+      used.add(i); used.add(j);
+      break;
+    }
+  }
+  const singles = candidates.filter((_, idx) => !used.has(idx)).map(({ _t, ...rest }) => rest); // eslint-disable-line no-unused-vars
+  const inboxAdd = [...transfers, ...singles];
 
   return { inboxAdd, inboxApps: apps, inboxSeen: seen, changed };
 }

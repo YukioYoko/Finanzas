@@ -31,7 +31,10 @@ export const seedCategories = [
   { id: "cat-predial", name: "Predial / Tenencia", freq: "anual" },
   { id: "cat-compras", name: "Compras", freq: "esporadico" },
   { id: "cat-salud", name: "Salud", freq: "esporadico" },
-  { id: "cat-nomina", name: "Nómina / Ingresos", freq: "mensual" },
+  { id: "cat-nomina", name: "Nómina", freq: "mensual" },
+  { id: "cat-otros", name: "Otros", freq: "esporadico" },
+  { id: "cat-salidas", name: "Salidas", freq: "esporadico" },
+  { id: "cat-ingresos", name: "Ingresos", freq: "mensual" },
 ];
 
 export const SUPPORT_EMAIL = "yukioyoko14@gmail.com";

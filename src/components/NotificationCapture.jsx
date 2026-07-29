@@ -24,7 +24,10 @@ export default function NotificationCapture({ data, update }) {
     update({ inboxApps: { ...inboxApps, [pkg]: { label: label || inboxApps[pkg]?.label || pkg, enabled } } });
   const toggleApp = (pkg) => setAppEnabled(pkg, inboxApps[pkg]?.label, !inboxApps[pkg]?.enabled);
 
-  // Selector de apps instaladas
+  const enabledCount = appList.filter(([, a]) => a.enabled).length;
+
+  // Menú desplegable de apps + selector de apps instaladas
+  const [appsOpen, setAppsOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [installed, setInstalled] = useState([]);
   const [pickerLoading, setPickerLoading] = useState(false);
@@ -73,47 +76,65 @@ export default function NotificationCapture({ data, update }) {
             </div>
           )}
 
-          {/* Paso 2: elegir apps */}
-          <div>
-            <p className="text-xs mb-2" style={{ color: C.faint }}>
-              Elige tus apps de banco: solo se leen las notificaciones de las que actives.
-            </p>
+          {/* Paso 2: elegir apps (menú desplegable) */}
+          <div className="rounded-lg" style={{ background: C.bg, border: `1px solid ${C.borderSoft}` }}>
+            <button
+              onClick={() => setAppsOpen((v) => !v)}
+              aria-expanded={appsOpen}
+              className="w-full flex items-center justify-between px-3 py-2.5 text-left"
+            >
+              <span className="text-sm" style={{ color: C.text }}>
+                Apps de las que registrar cargos
+                {enabledCount > 0 && (
+                  <span style={{ color: C.faint }}> · {enabledCount} activa{enabledCount === 1 ? "" : "s"}</span>
+                )}
+              </span>
+              <span aria-hidden="true" style={{ color: C.faint }}>{appsOpen ? "−" : "+"}</span>
+            </button>
 
-            {appList.length > 0 && (
-              <ul className="space-y-2 mb-2">
-                {appList.map(([pkg, app]) => (
-                  <li key={pkg} className="flex items-center justify-between gap-3">
-                    <span className="text-sm truncate" style={{ color: app.enabled ? C.text : C.muted }}>{app.label}</span>
-                    <Toggle on={app.enabled} onClick={() => toggleApp(pkg)} label={`${app.enabled ? "Desactivar" : "Activar"} ${app.label}`} />
-                  </li>
-                ))}
-              </ul>
-            )}
+            {appsOpen && (
+              <div className="px-3 pb-3">
+                <p className="text-xs mb-2" style={{ color: C.faint }}>
+                  Solo se leen las notificaciones de las apps que actives.
+                </p>
 
-            <Btn kind="ghost" onClick={openPicker} style={{ padding: "6px 12px" }}>
-              {pickerOpen ? "Cerrar lista" : "+ Elegir de mis apps instaladas"}
-            </Btn>
-
-            {pickerOpen && (
-              <div className="mt-3">
-                <TextInput value={appSearch} onChange={(e) => setAppSearch(e.target.value)} placeholder="Buscar app…" />
-                {pickerLoading ? (
-                  <p className="text-xs mt-3" style={{ color: C.faint }}>Cargando apps…</p>
-                ) : (
-                  <ul className="mt-3 space-y-2" style={{ maxHeight: 280, overflowY: "auto" }}>
-                    {filteredInstalled.map((a) => {
-                      const on = !!inboxApps[a.pkg]?.enabled;
-                      return (
-                        <li key={a.pkg} className="flex items-center justify-between gap-3">
-                          <span className="text-sm truncate" style={{ color: on ? C.text : C.muted }}>{a.label}</span>
-                          <Toggle on={on} onClick={() => setAppEnabled(a.pkg, a.label, !on)} label={`${on ? "Desactivar" : "Activar"} ${a.label}`} />
-                        </li>
-                      );
-                    })}
-                    {!filteredInstalled.length && (
-                      <li className="text-xs" style={{ color: C.faint }}>{installed.length ? "Sin resultados." : "No se encontraron apps."}</li>
-                    )}
+                {appList.length > 0 && (
+                  <ul className="space-y-2 mb-2">
+                    {appList.map(([pkg, app]) => (
+                      <li key={pkg} className="flex items-center justify-between gap-3">
+                        <span className="text-sm truncate" style={{ color: app.enabled ? C.text : C.muted }}>{app.label}</span>
+                        <Toggle on={app.enabled} onClick={() => toggleApp(pkg)} label={`${app.enabled ? "Desactivar" : "Activar"} ${app.label}`} />
+                      </li>
+                    ))}
                   </ul>
+                )}
+
+                <Btn kind="ghost" onClick={openPicker} style={{ padding: "6px 12px" }}>
+                  {pickerOpen ? "Cerrar lista" : "+ Elegir de mis apps instaladas"}
+                </Btn>
+
+                {pickerOpen && (
+                  <div className="mt-3">
+                    <TextInput value={appSearch} onChange={(e) => setAppSearch(e.target.value)} placeholder="Buscar app…" />
+                    {pickerLoading ? (
+                      <p className="text-xs mt-3" style={{ color: C.faint }}>Cargando apps…</p>
+                    ) : (
+                      <ul className="mt-3 space-y-2" style={{ maxHeight: 280, overflowY: "auto" }}>
+                        {filteredInstalled.map((a) => {
+                          const on = !!inboxApps[a.pkg]?.enabled;
+                          return (
+                            <li key={a.pkg} className="flex items-center justify-between gap-3">
+                              <span className="text-sm truncate" style={{ color: on ? C.text : C.muted }}>{a.label}</span>
+                              <Toggle on={on} onClick={() => setAppEnabled(a.pkg, a.label, !on)} label={`${on ? "Desactivar" : "Activar"} ${a.label}`} />
+                            </li>
+                          );
+                        })}
+                        {!filteredInstalled.length && (
+                          <li className="text-xs" style={{ color: C.faint }}>{installed.length ? "Sin resultados." : "No se encontraron apps."}</li>
+                        )}
+                      </ul>
+                    )}
+                  </div>
                 )}
               </div>
             )}
