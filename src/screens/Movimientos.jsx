@@ -144,14 +144,15 @@ function MovEditor({ mov, data, onSave, onCancel }) {
   const [error, setError] = useState("");
   const accCards = cards.filter((c) => c.accountId === accountId);
   const selectedCard = cards.find((c) => c.id === cardId);
-  const isCreditExpense = type === "gasto" && selectedCard?.type === "credito";
+  const isAdjust = !!mov.adjust; // los ajustes de saldo no llevan categoría ni MSI
+  const isCreditExpense = !isAdjust && type === "gasto" && selectedCard?.type === "credito";
 
   const save = () => {
     const amt = parseFloat(amount);
     if (!title.trim()) return setError("Escribe un título.");
     if (!cardId) return setError("Elige la cuenta y la tarjeta.");
     if (!amt || amt <= 0) return setError("Escribe un monto mayor a cero.");
-    if (!categoryId) return setError("Elige una categoría.");
+    if (!isAdjust && !categoryId) return setError("Elige una categoría.");
     onSave({
       ...mov,
       cardId,
@@ -160,7 +161,7 @@ function MovEditor({ mov, data, onSave, onCancel }) {
       description: description.trim(),
       amount: amt,
       date,
-      categoryId,
+      categoryId: isAdjust ? null : categoryId,
       months: isCreditExpense && aMeses ? Number(months) : 1,
       commission: isCreditExpense && aMeses ? (parseFloat(commission) || 0) : 0,
     });
@@ -169,7 +170,7 @@ function MovEditor({ mov, data, onSave, onCancel }) {
   return (
     <Card style={{ borderColor: C.accent }}>
       <div className="flex items-center justify-between mb-3">
-        <Chip color={C.accent} bg={C.accentSoft}>Editando movimiento</Chip>
+        <Chip color={C.accent} bg={C.accentSoft}>{isAdjust ? "Editando ajuste de saldo" : "Editando movimiento"}</Chip>
         <Btn kind="ghost" onClick={onCancel} style={{ padding: "4px 10px" }}>Cancelar</Btn>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -205,18 +206,20 @@ function MovEditor({ mov, data, onSave, onCancel }) {
         <Field label="Monto (MXN)">
           <TextInput type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
         </Field>
-        <Field label="Categoría">
-          <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-            <option value="">— Elegir categoría —</option>
-            {FREQS.map((f) => (
-              <optgroup key={f.id} label={f.label}>
-                {categories.filter((c) => c.freq === f.id).map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </optgroup>
-            ))}
-          </Select>
-        </Field>
+        {!isAdjust && (
+          <Field label="Categoría">
+            <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+              <option value="">— Elegir categoría —</option>
+              {FREQS.map((f) => (
+                <optgroup key={f.id} label={f.label}>
+                  {categories.filter((c) => c.freq === f.id).map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </Select>
+          </Field>
+        )}
       </div>
       {isCreditExpense && (
         <div className="mt-3 rounded-lg p-3" style={{ background: C.amberSoft, border: `1px solid ${C.amber}` }}>
@@ -254,6 +257,91 @@ function MovEditor({ mov, data, onSave, onCancel }) {
   );
 }
 
+// Editor de una transferencia: edita las DOS patas a la vez para que siga cuadrando
+function TransferEditor({ mov, data, onSave, onCancel }) {
+  const C = useTheme();
+  const { accounts, cards, movements } = data;
+  const legs = movements.filter((m) => m.transferId === mov.transferId);
+  const gastoLeg = legs.find((m) => m.type === "gasto");
+  const ingresoLeg = legs.find((m) => m.type === "ingreso");
+  const fromCard0 = cards.find((c) => c.id === gastoLeg?.cardId);
+  const toCard0 = cards.find((c) => c.id === ingresoLeg?.cardId);
+  const [fromAcc, setFromAcc] = useState(fromCard0 ? fromCard0.accountId : "");
+  const [fromCard, setFromCard] = useState(gastoLeg?.cardId || "");
+  const [toAcc, setToAcc] = useState(toCard0 ? toCard0.accountId : "");
+  const [toCard, setToCard] = useState(ingresoLeg?.cardId || "");
+  const [amount, setAmount] = useState(String(gastoLeg?.amount ?? mov.amount));
+  const [date, setDate] = useState(mov.date);
+  // Si el título es el automático ("Transferencia a/desde …") lo dejamos vacío para regenerarlo
+  const custom = mov.title && !/^Transferencia (a|desde) /.test(mov.title) ? mov.title : "";
+  const [title, setTitle] = useState(custom);
+  const [description, setDescription] = useState(mov.description || "");
+  const [error, setError] = useState("");
+  const fromCards = cards.filter((c) => c.accountId === fromAcc);
+  const toCards = cards.filter((c) => c.accountId === toAcc);
+
+  const save = () => {
+    const amt = parseFloat(amount);
+    if (!fromCard) return setError("Elige la cuenta y tarjeta de origen.");
+    if (!toCard) return setError("Elige la cuenta y tarjeta de destino.");
+    if (fromCard === toCard) return setError("El origen y el destino deben ser distintos.");
+    if (!amt || amt <= 0) return setError("Escribe un monto mayor a cero.");
+    onSave(mov.transferId, { fromCard, toCard, amount: amt, date, title: title.trim(), description: description.trim() });
+  };
+
+  return (
+    <Card style={{ borderColor: C.blue }}>
+      <div className="flex items-center justify-between mb-3">
+        <Chip color={C.blue}>Editando transferencia</Chip>
+        <Btn kind="ghost" onClick={onCancel} style={{ padding: "4px 10px" }}>Cancelar</Btn>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Field label="Cuenta origen">
+          <Select value={fromAcc} onChange={(e) => { setFromAcc(e.target.value); setFromCard(""); }}>
+            <option value="">— Elegir cuenta —</option>
+            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
+          </Select>
+        </Field>
+        <Field label="Tarjeta origen">
+          <Select value={fromCard} onChange={(e) => setFromCard(e.target.value)} disabled={!fromAcc}>
+            <option value="">{fromAcc ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
+            {fromCards.map((c) => <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}</option>)}
+          </Select>
+        </Field>
+        <Field label="Cuenta destino">
+          <Select value={toAcc} onChange={(e) => { setToAcc(e.target.value); setToCard(""); }}>
+            <option value="">— Elegir cuenta —</option>
+            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
+          </Select>
+        </Field>
+        <Field label="Tarjeta destino">
+          <Select value={toCard} onChange={(e) => setToCard(e.target.value)} disabled={!toAcc}>
+            <option value="">{toAcc ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
+            {toCards.filter((c) => c.id !== fromCard).map((c) => <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}</option>)}
+          </Select>
+        </Field>
+        <Field label="Monto (MXN)">
+          <TextInput type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
+        </Field>
+        <Field label="Fecha">
+          <TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </Field>
+        <Field label="Título (opcional)">
+          <TextInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Se genera solo si lo dejas vacío" />
+        </Field>
+        <Field label="Descripción (opcional)">
+          <TextInput value={description} onChange={(e) => setDescription(e.target.value)} />
+        </Field>
+      </div>
+      <p className="text-xs mt-2" style={{ color: C.faint }}>Se actualizan las dos patas de la transferencia para que el saldo siga cuadrando.</p>
+      {error && <p className="text-xs mt-2" style={{ color: C.red }}>{error}</p>}
+      <div className="mt-3">
+        <Btn onClick={save}>Guardar cambios</Btn>
+      </div>
+    </Card>
+  );
+}
+
 export default function Movimientos({ data, update }) {
   const C = useTheme();
   const { accounts, cards, categories, movements } = data;
@@ -282,6 +370,8 @@ export default function Movimientos({ data, update }) {
   const [description, setDescription] = useState("");
   const [editId, setEditId] = useState(null);
   const [periodo, setPeriodo] = useState("recientes");
+  const [catFilter, setCatFilter] = useState([]); // categorías seleccionadas (vacío = todas)
+  const [catFilterOpen, setCatFilterOpen] = useState(false);
   const [categoryId, setCategoryId] = useState("");
   const [date, setDate] = useState(todayISO());
   const [aMeses, setAMeses] = useState(false);
@@ -350,6 +440,21 @@ export default function Movimientos({ data, update }) {
     setEditId(null);
   };
 
+  // Guarda una transferencia editando sus DOS patas juntas (mantiene el cuadre)
+  const saveTransfer = (transferId, { fromCard, toCard, amount: amt, date: d, title: t, description: desc }) => {
+    const from = cards.find((c) => c.id === fromCard);
+    const to = cards.find((c) => c.id === toCard);
+    update({
+      movements: movements.map((m) => {
+        if (m.transferId !== transferId) return m;
+        const base = { ...m, amount: amt, date: d, description: desc, months: 1, commission: 0 };
+        if (m.type === "gasto") return { ...base, cardId: fromCard, title: t || `Transferencia a ${to?.name || "?"}` };
+        return { ...base, cardId: toCard, title: t || `Transferencia desde ${from?.name || "?"}` };
+      }),
+    });
+    setEditId(null);
+  };
+
   // Al borrar una pata de una transferencia se borran las dos, para no descuadrar
   const del = (id) => {
     const mov = movements.find((m) => m.id === id);
@@ -358,7 +463,8 @@ export default function Movimientos({ data, update }) {
   };
 
   const sorted = [...movements].sort((a, b) => (a.date < b.date ? 1 : -1));
-  const visibles = filterByPeriodo(sorted, periodo);
+  const byCat = catFilter.length ? sorted.filter((m) => catFilter.includes(m.categoryId)) : sorted;
+  const visibles = filterByPeriodo(byCat, periodo);
 
   const totalConComision = (parseFloat(amount) || 0) + (parseFloat(commission) || 0);
   const mensualidad = aMeses && months > 0 ? totalConComision / months : 0;
@@ -507,23 +613,57 @@ export default function Movimientos({ data, update }) {
       )}
 
       {sorted.length > 0 && (
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex gap-1 flex-wrap">
-            {PERIODOS.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => setPeriodo(p.id)}
-                className="rounded-full px-3 py-1 text-xs transition-opacity hover:opacity-85"
-                style={periodo === p.id
-                  ? { background: C.accentSoft, color: C.accent, border: `1px solid ${C.border}`, fontWeight: 600 }
-                  : { color: C.muted, border: `1px solid ${C.borderSoft}` }}
-              >
-                {p.label}
-              </button>
-            ))}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex gap-1 flex-wrap">
+              {PERIODOS.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => setPeriodo(p.id)}
+                  className="rounded-full px-3 py-1 text-xs transition-opacity hover:opacity-85"
+                  style={periodo === p.id
+                    ? { background: C.accentSoft, color: C.accent, border: `1px solid ${C.border}`, fontWeight: 600 }
+                    : { color: C.muted, border: `1px solid ${C.borderSoft}` }}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <Btn kind="ghost" onClick={() => setCatFilterOpen((v) => !v)} style={{ padding: "4px 10px" }}>
+              Categorías{catFilter.length ? ` (${catFilter.length})` : ""}
+            </Btn>
           </div>
-          {periodo === "recientes" && sorted.length > 10 && (
-            <span className="text-xs" style={{ color: C.faint }}>Mostrando 10 de {sorted.length}</span>
+
+          {catFilterOpen && (
+            <Card style={{ paddingTop: 12, paddingBottom: 12 }}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>Filtrar por categoría</span>
+                {catFilter.length > 0 && (
+                  <button onClick={() => setCatFilter([])} className="text-xs" style={{ color: C.accent }}>Limpiar</button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {categories.map((c) => {
+                  const on = catFilter.includes(c.id);
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => setCatFilter((prev) => (on ? prev.filter((x) => x !== c.id) : [...prev, c.id]))}
+                      className="rounded-full px-3 py-1 text-xs transition-opacity hover:opacity-85"
+                      style={on
+                        ? { background: C.accentSoft, color: C.accent, border: `1px solid ${C.border}`, fontWeight: 600 }
+                        : { color: C.muted, border: `1px solid ${C.borderSoft}` }}
+                    >
+                      {c.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </Card>
+          )}
+
+          {periodo === "recientes" && byCat.length > 10 && (
+            <span className="text-xs" style={{ color: C.faint }}>Mostrando 10 de {byCat.length}</span>
           )}
         </div>
       )}
@@ -543,9 +683,11 @@ export default function Movimientos({ data, update }) {
             const card = cardById[m.cardId];
             const isGasto = m.type === "gasto";
             const hasMSI = Number(m.months) > 1;
-            const editable = !m.transfer && !m.interest && !m.adjust;
+            const editable = !m.interest; // transferencias, ajustes e ingresos ya se pueden editar; los rendimientos no
             if (editId === m.id) {
-              return <MovEditor key={m.id} mov={m} data={data} onSave={saveEdit} onCancel={() => setEditId(null)} />;
+              return m.transfer
+                ? <TransferEditor key={m.id} mov={m} data={data} onSave={saveTransfer} onCancel={() => setEditId(null)} />
+                : <MovEditor key={m.id} mov={m} data={data} onSave={saveEdit} onCancel={() => setEditId(null)} />;
             }
             return (
               <Card key={m.id} className="flex items-center justify-between gap-3">

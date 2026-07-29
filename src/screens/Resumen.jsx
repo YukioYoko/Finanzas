@@ -5,6 +5,7 @@ import { money, uid, todayISO, isoOf, fmtDia } from "../utils/format";
 import { cardLabel, movTotal, balanceOfCard, creditStatement, clampDay, isDebtType } from "../lib/finance";
 import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty } from "../components/ui";
 import GraficaMensual from "../components/GraficaMensual";
+import GraficaCategorias from "../components/GraficaCategorias";
 
 export default function Resumen({ data, update }) {
   const C = useTheme();
@@ -215,6 +216,12 @@ export default function Resumen({ data, update }) {
       <div>
         <SectionTitle>Gastos e ingresos por mes</SectionTitle>
         <GraficaMensual counted={counted} />
+      </div>
+
+      {/* Desglose por categoría */}
+      <div>
+        <SectionTitle>Por categoría (este mes)</SectionTitle>
+        <GraficaCategorias counted={counted} categories={categories} />
       </div>
 
       {/* Cajas de ahorro */}
