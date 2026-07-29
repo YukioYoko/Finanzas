@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Capacitor } from "@capacitor/core";
+import { AppUpdate, AppUpdateAvailability } from "@capawesome/capacitor-app-update";
 import { THEMES, ThemeContext } from "./theme";
 import { EMPTY } from "./constants";
 import { store } from "./store";
@@ -30,6 +31,30 @@ export default function FinanzasApp() {
   const [saveError, setSaveError] = useState(false);
   const [showTour, setShowTour] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [updateReady, setUpdateReady] = useState(false);
+
+  // Busca actualizaciones en Google Play (solo apps instaladas desde la tienda)
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    (async () => {
+      try {
+        const info = await AppUpdate.getAppUpdateInfo();
+        if (info.updateAvailability === AppUpdateAvailability.UPDATE_AVAILABLE) setUpdateReady(true);
+      } catch (e) {
+        // No es una instalación de Play, o el servicio no está disponible: se ignora
+      }
+    })();
+  }, []);
+
+  const doUpdate = async () => {
+    try {
+      const info = await AppUpdate.getAppUpdateInfo();
+      if (info.immediateUpdateAllowed) return AppUpdate.performImmediateUpdate();
+      return AppUpdate.openAppStore();
+    } catch (e) {
+      try { await AppUpdate.openAppStore(); } catch (_) { /* nada más que hacer */ }
+    }
+  };
 
   // Cargar
   useEffect(() => {
@@ -172,6 +197,25 @@ export default function FinanzasApp() {
               </button>
             ))}
           </nav>
+
+          {updateReady && (
+            <div
+              className="mb-4 rounded-xl p-3 flex items-center justify-between gap-3 flex-wrap"
+              style={{ background: C.accentSoft, border: `1px solid ${C.accent}` }}
+            >
+              <div className="min-w-0">
+                <p className="text-sm font-medium" style={{ color: C.accent }}>Hay una actualización disponible</p>
+                <p className="text-xs mt-0.5" style={{ color: C.muted }}>Actualiza para tener las últimas mejoras y correcciones.</p>
+              </div>
+              <button
+                onClick={doUpdate}
+                className="rounded-lg px-3 py-2 text-sm shrink-0"
+                style={{ background: C.accent, color: C.accentText, fontWeight: 600 }}
+              >
+                Actualizar
+              </button>
+            </div>
+          )}
 
           {TABS.map(({ id, Screen }) => (tab === id ? <Screen key={id} data={data} update={update} /> : null))}
         </div>
