@@ -34,7 +34,8 @@ function filterByPeriodo(sorted, periodo) {
   return sorted.filter((m) => m.date >= fromISO);
 }
 
-// Un cargo detectado en una notificación, pendiente de que el usuario lo complete
+// Un cargo detectado en una notificación, pendiente de que el usuario lo complete.
+// Se puede confirmar como gasto, ingreso, o convertir en una transferencia entre cuentas.
 function InboxItem({ item, data, onConfirm, onDiscard }) {
   const C = useTheme();
   const { accounts, cards, categories } = data;
@@ -42,29 +43,39 @@ function InboxItem({ item, data, onConfirm, onDiscard }) {
   const [accountId, setAccountId] = useState(initialCard ? initialCard.accountId : "");
   const [cardId, setCardId] = useState(item.cardId || "");
   const [type, setType] = useState(item.type || "gasto");
+  const [toAccountId, setToAccountId] = useState("");
+  const [toCardId, setToCardId] = useState("");
   const [amount, setAmount] = useState(String(item.amount));
   const [date, setDate] = useState(item.date);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [error, setError] = useState("");
+  const isTransfer = type === "transfer";
   const accCards = cards.filter((c) => c.accountId === accountId);
+  const toAccCards = cards.filter((c) => c.accountId === toAccountId);
 
   const confirm = () => {
     const amt = parseFloat(amount);
+    if (!amt || amt <= 0) return setError("Escribe un monto mayor a cero.");
+    if (isTransfer) {
+      if (!cardId) return setError("Elige la cuenta y tarjeta de origen.");
+      if (!toCardId) return setError("Elige la cuenta y tarjeta de destino.");
+      if (cardId === toCardId) return setError("El origen y el destino deben ser distintos.");
+      return onConfirm(item, { transfer: true, fromCard: cardId, toCard: toCardId, amount: amt, date, title: title.trim() });
+    }
     if (!title.trim()) return setError("Escribe un título (ej. el comercio).");
     if (!cardId) return setError("Elige la cuenta y la tarjeta.");
-    if (!amt || amt <= 0) return setError("Escribe un monto mayor a cero.");
     if (!categoryId) return setError("Elige una categoría.");
     onConfirm(item, { cardId, type, amount: amt, date, title: title.trim(), description: description.trim(), categoryId });
   };
 
   return (
-    <Card style={{ borderColor: C.amber }}>
+    <Card style={{ borderColor: isTransfer ? C.blue : C.amber }}>
       <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
         <div className="flex items-center gap-2 flex-wrap">
           <Chip color={C.amber} bg={C.amberSoft}>Detectado en notificación</Chip>
-          <Amount value={parseFloat(amount) || 0} sign={type === "gasto" ? "-" : "+"} size="text-sm" />
+          <Amount value={parseFloat(amount) || 0} sign={isTransfer ? "" : type === "gasto" ? "-" : "+"} size="text-sm" />
         </div>
         <Btn kind="danger" onClick={() => onDiscard(item)} style={{ padding: "4px 8px" }}>Descartar</Btn>
       </div>
@@ -74,15 +85,16 @@ function InboxItem({ item, data, onConfirm, onDiscard }) {
           <Select value={type} onChange={(e) => setType(e.target.value)}>
             <option value="gasto">Gasto</option>
             <option value="ingreso">Ingreso</option>
+            <option value="transfer">Transferencia entre cuentas</option>
           </Select>
         </Field>
-        <Field label="Cuenta">
+        <Field label={isTransfer ? "Cuenta origen" : "Cuenta"}>
           <Select value={accountId} onChange={(e) => { setAccountId(e.target.value); setCardId(""); }}>
             <option value="">— Elegir cuenta —</option>
             {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
           </Select>
         </Field>
-        <Field label="Tarjeta">
+        <Field label={isTransfer ? "Tarjeta origen" : "Tarjeta"}>
           <Select value={cardId} onChange={(e) => setCardId(e.target.value)} disabled={!accountId}>
             <option value="">{accountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
             {accCards.map((c) => (
@@ -90,36 +102,63 @@ function InboxItem({ item, data, onConfirm, onDiscard }) {
             ))}
           </Select>
         </Field>
+        {isTransfer && (
+          <>
+            <Field label="Cuenta destino">
+              <Select value={toAccountId} onChange={(e) => { setToAccountId(e.target.value); setToCardId(""); }}>
+                <option value="">— Elegir cuenta —</option>
+                {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
+              </Select>
+            </Field>
+            <Field label="Tarjeta destino">
+              <Select value={toCardId} onChange={(e) => setToCardId(e.target.value)} disabled={!toAccountId}>
+                <option value="">{toAccountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
+                {toAccCards.filter((c) => c.id !== cardId).map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}</option>
+                ))}
+              </Select>
+            </Field>
+          </>
+        )}
         <Field label="Monto (MXN)">
           <TextInput type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
         </Field>
         <Field label="Fecha">
           <TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </Field>
-        <Field label="Categoría">
-          <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-            <option value="">— Elegir categoría —</option>
-            {FREQS.map((f) => (
-              <optgroup key={f.id} label={f.label}>
-                {categories.filter((c) => c.freq === f.id).map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </optgroup>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Título">
-          <TextInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ej. Súper, gasolina…" />
-        </Field>
-        <div className="sm:col-span-2">
-          <Field label="Descripción (opcional)">
-            <TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Detalles extra" />
+        {!isTransfer && (
+          <Field label="Categoría">
+            <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+              <option value="">— Elegir categoría —</option>
+              {FREQS.map((f) => (
+                <optgroup key={f.id} label={f.label}>
+                  {categories.filter((c) => c.freq === f.id).map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </Select>
           </Field>
-        </div>
+        )}
+        <Field label={isTransfer ? "Título (opcional)" : "Título"}>
+          <TextInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder={isTransfer ? "Se genera solo si lo dejas vacío" : "Ej. Súper, gasolina…"} />
+        </Field>
+        {!isTransfer && (
+          <div className="sm:col-span-2">
+            <Field label="Descripción (opcional)">
+              <TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Detalles extra" />
+            </Field>
+          </div>
+        )}
       </div>
+      {isTransfer && (
+        <p className="text-xs mt-2" style={{ color: C.faint }}>
+          La transferencia mueve el dinero entre tus cuentas sin contarse como gasto ni ingreso. Si el destino es una tarjeta de crédito, funciona como pago de la tarjeta.
+        </p>
+      )}
       {error && <p className="text-xs mt-2" style={{ color: C.red }}>{error}</p>}
       <div className="mt-3">
-        <Btn onClick={confirm}>Confirmar movimiento</Btn>
+        <Btn onClick={confirm}>{isTransfer ? "Confirmar transferencia" : "Confirmar movimiento"}</Btn>
       </div>
     </Card>
   );
