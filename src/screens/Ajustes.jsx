@@ -131,7 +131,7 @@ export default function Ajustes({ data, update, onClose, onShowTour, onImport })
         className="sticky top-0 z-10 -mx-4 px-4 flex items-center justify-between"
         style={{
           background: C.bg,
-          paddingTop: "calc(env(safe-area-inset-top, 0px) + 16px)",
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 18px)",
           paddingBottom: "12px",
           borderBottom: `1px solid ${C.borderSoft}`,
         }}
