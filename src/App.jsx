@@ -32,6 +32,7 @@ export default function FinanzasApp() {
   const [showTour, setShowTour] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [updateReady, setUpdateReady] = useState(false);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
 
   // Busca actualizaciones en Google Play (solo apps instaladas desde la tienda)
   useEffect(() => {
@@ -39,7 +40,10 @@ export default function FinanzasApp() {
     (async () => {
       try {
         const info = await AppUpdate.getAppUpdateInfo();
-        if (info.updateAvailability === AppUpdateAvailability.UPDATE_AVAILABLE) setUpdateReady(true);
+        if (info.updateAvailability === AppUpdateAvailability.UPDATE_AVAILABLE) {
+          setUpdateReady(true);
+          setShowUpdateModal(true); // aviso grande al abrir; el usuario puede posponerlo
+        }
       } catch (e) {
         // No es una instalación de Play, o el servicio no está disponible: se ignora
       }
@@ -47,6 +51,7 @@ export default function FinanzasApp() {
   }, []);
 
   const doUpdate = async () => {
+    setShowUpdateModal(false);
     try {
       const info = await AppUpdate.getAppUpdateInfo();
       if (info.immediateUpdateAllowed) return AppUpdate.performImmediateUpdate();
@@ -198,7 +203,7 @@ export default function FinanzasApp() {
             ))}
           </nav>
 
-          {updateReady && (
+          {updateReady && !showUpdateModal && (
             <div
               className="mb-4 rounded-xl p-3 flex items-center justify-between gap-3 flex-wrap"
               style={{ background: C.accentSoft, border: `1px solid ${C.accent}` }}
@@ -243,6 +248,52 @@ export default function FinanzasApp() {
                 onShowTour={() => { setShowSettings(false); setShowTour(true); }}
               />
             </aside>
+          </div>
+        )}
+
+        {/* Aviso grande de actualización al abrir la app. Es descartable:
+            si el usuario no puede actualizar ahora, sigue usando la app y le
+            queda un banner de recordatorio arriba de las pestañas. */}
+        {showUpdateModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Actualización disponible">
+            <div
+              className="absolute inset-0"
+              style={{ background: "rgba(0,0,0,0.6)", animation: "fade-in 0.2s ease-out" }}
+              onClick={() => setShowUpdateModal(false)}
+              aria-hidden="true"
+            />
+            <div
+              className="relative w-full max-w-md rounded-2xl p-6 text-center"
+              style={{ background: C.surface, border: `1px solid ${C.border}`, animation: "fade-in 0.2s ease-out" }}
+            >
+              <div
+                className="mx-auto mb-4 flex items-center justify-center rounded-full"
+                style={{ width: 56, height: 56, background: C.accentSoft, color: C.accent, fontSize: 28 }}
+                aria-hidden="true"
+              >
+                ↑
+              </div>
+              <h2 className="text-xl font-semibold mb-2">Hay una nueva versión</h2>
+              <p className="text-sm mb-6" style={{ color: C.muted }}>
+                Actualiza Mis Finanzas para tener las últimas mejoras y correcciones. Si ahora no puedes, puedes seguir usando la app y actualizar más tarde.
+              </p>
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={doUpdate}
+                  className="rounded-xl px-4 py-3 text-sm"
+                  style={{ background: C.accent, color: C.accentText, fontWeight: 600 }}
+                >
+                  Actualizar ahora
+                </button>
+                <button
+                  onClick={() => setShowUpdateModal(false)}
+                  className="rounded-xl px-4 py-3 text-sm"
+                  style={{ background: "transparent", color: C.muted, border: `1px solid ${C.border}` }}
+                >
+                  Ahora no, seguir usando la app
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
