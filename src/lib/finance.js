@@ -230,7 +230,8 @@ export function applyInterest(data) {
       const balance = balanceOfCard(card, movements);
       if (balance > 0) {
         const annualRate = card.ratePeriod === "mensual" ? rate * 12 : rate;
-        const interest = Math.round(balance * (Math.pow(1 + annualRate / 100 / 365, days) - 1) * 100) / 100;
+        // Interés compuesto diario con base comercial de 360 días (año comercial)
+        const interest = Math.round(balance * (Math.pow(1 + annualRate / 100 / 360, days) - 1) * 100) / 100;
         if (interest >= 0.01) {
           const isDebt = card.type === "deuda";
           const periodLabel = card.ratePeriod === "mensual" ? "mensual" : "anual";
