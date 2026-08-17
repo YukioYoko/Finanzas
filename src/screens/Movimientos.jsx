@@ -546,7 +546,8 @@ export default function Movimientos({ data, update }) {
   const [editId, setEditId] = useState(null);
   const [periodo, setPeriodo] = useState("recientes");
   const [catFilter, setCatFilter] = useState([]); // categorías seleccionadas (vacío = todas)
-  const [catFilterOpen, setCatFilterOpen] = useState(false);
+  const [cardFilter, setCardFilter] = useState([]); // tarjetas seleccionadas (vacío = todas)
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [categoryId, setCategoryId] = useState("");
   const [date, setDate] = useState(todayISO());
   const [aMeses, setAMeses] = useState(false);
@@ -690,7 +691,14 @@ export default function Movimientos({ data, update }) {
 
   const sorted = [...movements].sort((a, b) => (a.date < b.date ? 1 : -1));
   const byCat = catFilter.length ? sorted.filter((m) => catFilter.includes(m.categoryId)) : sorted;
-  const visibles = filterByPeriodo(byCat, periodo);
+  const byCard = cardFilter.length ? byCat.filter((m) => cardFilter.includes(m.cardId)) : byCat;
+  const visibles = filterByPeriodo(byCard, periodo);
+  const activeFilters = catFilter.length + cardFilter.length;
+
+  // Estilo de "chip" (píldora) según esté activo o no; se reutiliza en periodo y filtros
+  const chipStyle = (on) => (on
+    ? { background: C.accentSoft, color: C.accent, border: `1px solid ${C.border}`, fontWeight: 600 }
+    : { color: C.muted, border: `1px solid ${C.borderSoft}` });
 
   // Agrupa las patas de un pago dividido (mismo splitId) en una sola fila de la lista
   const visibleRows = [];
@@ -943,23 +951,90 @@ export default function Movimientos({ data, update }) {
                   key={p.id}
                   onClick={() => setPeriodo(p.id)}
                   className="rounded-full px-3 py-1 text-xs transition-opacity hover:opacity-85"
-                  style={periodo === p.id
-                    ? { background: C.accentSoft, color: C.accent, border: `1px solid ${C.border}`, fontWeight: 600 }
-                    : { color: C.muted, border: `1px solid ${C.borderSoft}` }}
+                  style={chipStyle(periodo === p.id)}
                 >
                   {p.label}
                 </button>
               ))}
             </div>
-            <Btn kind="ghost" onClick={() => setCatFilterOpen((v) => !v)} style={{ padding: "4px 10px" }}>
-              Categorías{catFilter.length ? ` (${catFilter.length})` : ""}
+            <Btn kind={filtersOpen || activeFilters ? "primary" : "ghost"} onClick={() => setFiltersOpen((v) => !v)} style={{ padding: "4px 12px" }}>
+              Filtros{activeFilters ? ` · ${activeFilters}` : ""}
             </Btn>
           </div>
 
-          {catFilterOpen && (
+          {/* Chips de los filtros activos, para verlos de un vistazo sin abrir el panel */}
+          {activeFilters > 0 && !filtersOpen && (
+            <div className="flex flex-wrap gap-1.5 items-center">
+              {cardFilter.map((id) => {
+                const c = cardById[id];
+                if (!c) return null;
+                return (
+                  <button key={id} onClick={() => setCardFilter((prev) => prev.filter((x) => x !== id))}
+                    className="rounded-full px-2.5 py-0.5 text-xs inline-flex items-center gap-1"
+                    style={{ background: C.accentSoft, color: C.accent, border: `1px solid ${C.border}` }}>
+                    {c.name}{c.last4 ? ` ····${c.last4}` : ""} <span aria-hidden="true">✕</span>
+                  </button>
+                );
+              })}
+              {catFilter.map((id) => {
+                const c = catById[id];
+                if (!c) return null;
+                return (
+                  <button key={id} onClick={() => setCatFilter((prev) => prev.filter((x) => x !== id))}
+                    className="rounded-full px-2.5 py-0.5 text-xs inline-flex items-center gap-1"
+                    style={{ background: C.accentSoft, color: C.accent, border: `1px solid ${C.border}` }}>
+                    {c.name} <span aria-hidden="true">✕</span>
+                  </button>
+                );
+              })}
+              <button onClick={() => { setCatFilter([]); setCardFilter([]); }} className="text-xs px-1" style={{ color: C.muted }}>
+                Limpiar
+              </button>
+            </div>
+          )}
+
+          {filtersOpen && (
             <Card style={{ paddingTop: 12, paddingBottom: 12 }}>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>Filtrar por categoría</span>
+                <span className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>Cuentas y tarjetas</span>
+                {cardFilter.length > 0 && (
+                  <button onClick={() => setCardFilter([])} className="text-xs" style={{ color: C.accent }}>Limpiar</button>
+                )}
+              </div>
+              <div className="space-y-2.5">
+                {accounts.map((a) => {
+                  const accCardList = cards.filter((c) => c.accountId === a.id);
+                  if (!accCardList.length) return null;
+                  const ids = accCardList.map((c) => c.id);
+                  const allOn = ids.every((id) => cardFilter.includes(id));
+                  const toggleAll = () => setCardFilter((prev) => (allOn ? prev.filter((x) => !ids.includes(x)) : [...new Set([...prev, ...ids])]));
+                  return (
+                    <div key={a.id}>
+                      <button onClick={toggleAll} className="text-xs mb-1 transition-opacity hover:opacity-80" style={{ color: allOn ? C.accent : C.faint, fontWeight: allOn ? 600 : 400 }}>
+                        {a.name}{a.bank ? ` · ${a.bank}` : ""}
+                      </button>
+                      <div className="flex flex-wrap gap-2">
+                        {accCardList.map((c) => {
+                          const on = cardFilter.includes(c.id);
+                          return (
+                            <button
+                              key={c.id}
+                              onClick={() => setCardFilter((prev) => (on ? prev.filter((x) => x !== c.id) : [...prev, c.id]))}
+                              className="rounded-full px-3 py-1 text-xs transition-opacity hover:opacity-85"
+                              style={chipStyle(on)}
+                            >
+                              {c.name}{c.last4 ? ` ····${c.last4}` : ""}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center justify-between mt-4 mb-2">
+                <span className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>Categorías</span>
                 {catFilter.length > 0 && (
                   <button onClick={() => setCatFilter([])} className="text-xs" style={{ color: C.accent }}>Limpiar</button>
                 )}
@@ -972,20 +1047,27 @@ export default function Movimientos({ data, update }) {
                       key={c.id}
                       onClick={() => setCatFilter((prev) => (on ? prev.filter((x) => x !== c.id) : [...prev, c.id]))}
                       className="rounded-full px-3 py-1 text-xs transition-opacity hover:opacity-85"
-                      style={on
-                        ? { background: C.accentSoft, color: C.accent, border: `1px solid ${C.border}`, fontWeight: 600 }
-                        : { color: C.muted, border: `1px solid ${C.borderSoft}` }}
+                      style={chipStyle(on)}
                     >
                       {c.name}
                     </button>
                   );
                 })}
               </div>
+
+              {activeFilters > 0 && (
+                <div className="mt-4 pt-3 flex items-center justify-between" style={{ borderTop: `1px solid ${C.borderSoft}` }}>
+                  <span className="text-xs" style={{ color: C.faint }}>{activeFilters} {activeFilters === 1 ? "filtro activo" : "filtros activos"}</span>
+                  <button onClick={() => { setCatFilter([]); setCardFilter([]); }} className="text-xs" style={{ color: C.muted }}>
+                    Limpiar todos
+                  </button>
+                </div>
+              )}
             </Card>
           )}
 
-          {periodo === "recientes" && byCat.length > 10 && (
-            <span className="text-xs" style={{ color: C.faint }}>Mostrando 10 de {byCat.length}</span>
+          {periodo === "recientes" && byCard.length > 10 && (
+            <span className="text-xs" style={{ color: C.faint }}>Mostrando 10 de {byCard.length}</span>
           )}
         </div>
       )}
@@ -997,7 +1079,7 @@ export default function Movimientos({ data, update }) {
             : 'Sin movimientos todavía. Usa "+ Nuevo movimiento" para registrar el primero.'}
         </Empty>
       ) : visibles.length === 0 ? (
-        <Empty>Sin movimientos en este periodo.</Empty>
+        <Empty>{activeFilters > 0 ? "Sin movimientos con los filtros seleccionados." : "Sin movimientos en este periodo."}</Empty>
       ) : (
         <div className="space-y-2">
           {visibleRows.map((row) => {
