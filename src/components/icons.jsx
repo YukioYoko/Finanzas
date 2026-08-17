@@ -73,3 +73,13 @@ export const IconUpload = (props) => (
     <line x1="12" y1="3" x2="12" y2="15" />
   </svg>
 );
+
+// Pago dividido: una fuente que se ramifica en varias (varios medios de pago)
+export const IconSplit = (props) => (
+  <svg {...base} {...props}>
+    <line x1="12" y1="3" x2="12" y2="9" />
+    <path d="M12 9c0 3-6 3-6 6v6" />
+    <path d="M12 9c0 3 6 3 6 6v6" />
+    <circle cx="12" cy="3" r="1" />
+  </svg>
+);

@@ -17,21 +17,23 @@ export function Field({ label, hint, children }) {
   );
 }
 
-// Icono "?" que abre un pequeño cuadro de diálogo con una explicación.
-// Pensado para ir junto a la etiqueta de un Field (prop `hint`).
-export function InfoHint({ title, children }) {
+// Icono "?" (o el que se pase) que abre un pequeño cuadro de diálogo con una
+// explicación. Pensado para ir junto a la etiqueta de un Field (prop `hint`) o
+// como aviso (p. ej. icono "!" en rojo). `icon` y `color` son opcionales.
+export function InfoHint({ title, children, icon = "?", color }) {
   const C = useTheme();
   const [open, setOpen] = useState(false);
+  const c = color || C.muted;
   return (
     <>
       <button
         type="button"
         onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(true); }}
-        aria-label={`Qué es ${title}`}
+        aria-label={typeof title === "string" ? title : "Más información"}
         className="inline-flex items-center justify-center rounded-full shrink-0 transition-opacity hover:opacity-80"
-        style={{ width: 16, height: 16, border: `1px solid ${C.border}`, color: C.muted, fontSize: 10, fontWeight: 700, lineHeight: 1 }}
+        style={{ width: 16, height: 16, border: `1px solid ${c}`, color: c, fontSize: 10, fontWeight: 700, lineHeight: 1 }}
       >
-        ?
+        {icon}
       </button>
       {open && (
         <div

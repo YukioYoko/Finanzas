@@ -2,8 +2,9 @@ import { useState, useMemo } from "react";
 import { useTheme } from "../theme";
 import { FREQS, MESES_OPCIONES } from "../constants";
 import { money, uid, todayISO, isoOf } from "../utils/format";
-import { cardLabel, movTotal, cardTypeLabel } from "../lib/finance";
+import { cardLabel, movTotal, cardTypeLabel, balanceOfCard, cashOverdraft } from "../lib/finance";
 import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty } from "../components/ui";
+import { IconSplit } from "../components/icons";
 
 const PERIODOS = [
   { id: "recientes", label: "Últimos 10" },
@@ -34,7 +35,20 @@ function filterByPeriodo(sorted, periodo) {
   return sorted.filter((m) => m.date >= fromISO);
 }
 
-// Un cargo detectado en una notificación, pendiente de que el usuario lo complete
+// Una cuenta de efectivo tiene una única cartera (auto-creada). Devuelve su id para
+// autoseleccionarla y así poder ocultar el selector de tarjeta, o null si no es efectivo.
+function cashCardId(accountId, accounts, cards) {
+  const acc = accounts.find((a) => a.id === accountId);
+  if (acc?.type !== "efectivo") return null;
+  return cards.find((c) => c.accountId === accountId && c.type === "efectivo")?.id || null;
+}
+
+// Mensaje de alerta cuando un gasto dejaría el efectivo en negativo (no se permite)
+const cashOverdraftMsg = (over) =>
+  `Este movimiento deja tu efectivo en negativo (−${money(over)}). El efectivo no puede quedar por debajo de cero. Si de verdad debes ese dinero, crea una cuenta de tipo "Deuda" en la pestaña Cuentas y regístralo ahí.`;
+
+// Un cargo detectado en una notificación, pendiente de que el usuario lo complete.
+// Se puede confirmar como gasto, ingreso, o convertir en una transferencia entre cuentas.
 function InboxItem({ item, data, onConfirm, onDiscard }) {
   const C = useTheme();
   const { accounts, cards, categories } = data;
@@ -42,29 +56,47 @@ function InboxItem({ item, data, onConfirm, onDiscard }) {
   const [accountId, setAccountId] = useState(initialCard ? initialCard.accountId : "");
   const [cardId, setCardId] = useState(item.cardId || "");
   const [type, setType] = useState(item.type || "gasto");
+  const [toAccountId, setToAccountId] = useState("");
+  const [toCardId, setToCardId] = useState("");
   const [amount, setAmount] = useState(String(item.amount));
   const [date, setDate] = useState(item.date);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [error, setError] = useState("");
+  const isTransfer = type === "transfer";
   const accCards = cards.filter((c) => c.accountId === accountId);
+  const toAccCards = cards.filter((c) => c.accountId === toAccountId);
+  const isCashAccount = cashCardId(accountId, accounts, cards) !== null;
+  const isToCashAccount = cashCardId(toAccountId, accounts, cards) !== null;
 
   const confirm = () => {
     const amt = parseFloat(amount);
+    if (!amt || amt <= 0) return setError("Escribe un monto mayor a cero.");
+    if (isTransfer) {
+      if (!cardId) return setError("Elige la cuenta y tarjeta de origen.");
+      if (!toCardId) return setError("Elige la cuenta y tarjeta de destino.");
+      if (cardId === toCardId) return setError("El origen y el destino deben ser distintos.");
+      const over = cashOverdraft(cards.find((c) => c.id === cardId), data.movements, amt);
+      if (over > 0) return setError(cashOverdraftMsg(over));
+      return onConfirm(item, { transfer: true, fromCard: cardId, toCard: toCardId, amount: amt, date, title: title.trim() });
+    }
     if (!title.trim()) return setError("Escribe un título (ej. el comercio).");
     if (!cardId) return setError("Elige la cuenta y la tarjeta.");
-    if (!amt || amt <= 0) return setError("Escribe un monto mayor a cero.");
     if (!categoryId) return setError("Elige una categoría.");
+    if (type === "gasto") {
+      const over = cashOverdraft(cards.find((c) => c.id === cardId), data.movements, amt);
+      if (over > 0) return setError(cashOverdraftMsg(over));
+    }
     onConfirm(item, { cardId, type, amount: amt, date, title: title.trim(), description: description.trim(), categoryId });
   };
 
   return (
-    <Card style={{ borderColor: C.amber }}>
+    <Card style={{ borderColor: isTransfer ? C.blue : C.amber }}>
       <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
         <div className="flex items-center gap-2 flex-wrap">
           <Chip color={C.amber} bg={C.amberSoft}>Detectado en notificación</Chip>
-          <Amount value={parseFloat(amount) || 0} sign={type === "gasto" ? "-" : "+"} size="text-sm" />
+          <Amount value={parseFloat(amount) || 0} sign={isTransfer ? "" : type === "gasto" ? "-" : "+"} size="text-sm" />
         </div>
         <Btn kind="danger" onClick={() => onDiscard(item)} style={{ padding: "4px 8px" }}>Descartar</Btn>
       </div>
@@ -74,52 +106,84 @@ function InboxItem({ item, data, onConfirm, onDiscard }) {
           <Select value={type} onChange={(e) => setType(e.target.value)}>
             <option value="gasto">Gasto</option>
             <option value="ingreso">Ingreso</option>
+            <option value="transfer">Transferencia entre cuentas</option>
           </Select>
         </Field>
-        <Field label="Cuenta">
-          <Select value={accountId} onChange={(e) => { setAccountId(e.target.value); setCardId(""); }}>
+        <Field label={isTransfer ? "Cuenta origen" : "Cuenta"}>
+          <Select value={accountId} onChange={(e) => { const id = e.target.value; setAccountId(id); setCardId(cashCardId(id, accounts, cards) || ""); }}>
             <option value="">— Elegir cuenta —</option>
             {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
           </Select>
         </Field>
-        <Field label="Tarjeta">
-          <Select value={cardId} onChange={(e) => setCardId(e.target.value)} disabled={!accountId}>
-            <option value="">{accountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
-            {accCards.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""}</option>
-            ))}
-          </Select>
-        </Field>
+        {!isCashAccount && (
+          <Field label={isTransfer ? "Tarjeta origen" : "Tarjeta"}>
+            <Select value={cardId} onChange={(e) => setCardId(e.target.value)} disabled={!accountId}>
+              <option value="">{accountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
+              {accCards.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""}</option>
+              ))}
+            </Select>
+          </Field>
+        )}
+        {isTransfer && (
+          <>
+            <Field label="Cuenta destino">
+              <Select value={toAccountId} onChange={(e) => { const id = e.target.value; setToAccountId(id); setToCardId(cashCardId(id, accounts, cards) || ""); }}>
+                <option value="">— Elegir cuenta —</option>
+                {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
+              </Select>
+            </Field>
+            {!isToCashAccount && (
+              <Field label="Tarjeta destino">
+                <Select value={toCardId} onChange={(e) => setToCardId(e.target.value)} disabled={!toAccountId}>
+                  <option value="">{toAccountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
+                  {toAccCards.filter((c) => c.id !== cardId).map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}</option>
+                  ))}
+                </Select>
+              </Field>
+            )}
+          </>
+        )}
         <Field label="Monto (MXN)">
           <TextInput type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
         </Field>
         <Field label="Fecha">
           <TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </Field>
-        <Field label="Categoría">
-          <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-            <option value="">— Elegir categoría —</option>
-            {FREQS.map((f) => (
-              <optgroup key={f.id} label={f.label}>
-                {categories.filter((c) => c.freq === f.id).map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </optgroup>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Título">
-          <TextInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ej. Súper, gasolina…" />
-        </Field>
-        <div className="sm:col-span-2">
-          <Field label="Descripción (opcional)">
-            <TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Detalles extra" />
+        {!isTransfer && (
+          <Field label="Categoría">
+            <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+              <option value="">— Elegir categoría —</option>
+              {FREQS.map((f) => (
+                <optgroup key={f.id} label={f.label}>
+                  {categories.filter((c) => c.freq === f.id).map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </Select>
           </Field>
-        </div>
+        )}
+        <Field label={isTransfer ? "Título (opcional)" : "Título"}>
+          <TextInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder={isTransfer ? "Se genera solo si lo dejas vacío" : "Ej. Súper, gasolina…"} />
+        </Field>
+        {!isTransfer && (
+          <div className="sm:col-span-2">
+            <Field label="Descripción (opcional)">
+              <TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Detalles extra" />
+            </Field>
+          </div>
+        )}
       </div>
+      {isTransfer && (
+        <p className="text-xs mt-2" style={{ color: C.faint }}>
+          La transferencia mueve el dinero entre tus cuentas sin contarse como gasto ni ingreso. Si el destino es una tarjeta de crédito, funciona como pago de la tarjeta.
+        </p>
+      )}
       {error && <p className="text-xs mt-2" style={{ color: C.red }}>{error}</p>}
       <div className="mt-3">
-        <Btn onClick={confirm}>Confirmar movimiento</Btn>
+        <Btn onClick={confirm}>{isTransfer ? "Confirmar transferencia" : "Confirmar movimiento"}</Btn>
       </div>
     </Card>
   );
@@ -141,6 +205,8 @@ function InboxTransferItem({ item, data, onConfirm, onDiscard }) {
   const [error, setError] = useState("");
   const fromCards = cards.filter((c) => c.accountId === fromAcc);
   const toCards = cards.filter((c) => c.accountId === toAcc);
+  const isFromCash = cashCardId(fromAcc, accounts, cards) !== null;
+  const isToCash = cashCardId(toAcc, accounts, cards) !== null;
 
   const confirm = () => {
     const amt = parseFloat(amount);
@@ -163,29 +229,33 @@ function InboxTransferItem({ item, data, onConfirm, onDiscard }) {
       {item.text && <p className="text-xs mb-3" style={{ color: C.faint }}>{item.text}</p>}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Field label="Cuenta origen">
-          <Select value={fromAcc} onChange={(e) => { setFromAcc(e.target.value); setFromCard(""); }}>
+          <Select value={fromAcc} onChange={(e) => { const id = e.target.value; setFromAcc(id); setFromCard(cashCardId(id, accounts, cards) || ""); }}>
             <option value="">— Elegir cuenta —</option>
             {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
           </Select>
         </Field>
-        <Field label="Tarjeta origen">
-          <Select value={fromCard} onChange={(e) => setFromCard(e.target.value)} disabled={!fromAcc}>
-            <option value="">{fromAcc ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
-            {fromCards.map((c) => <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}</option>)}
-          </Select>
-        </Field>
+        {!isFromCash && (
+          <Field label="Tarjeta origen">
+            <Select value={fromCard} onChange={(e) => setFromCard(e.target.value)} disabled={!fromAcc}>
+              <option value="">{fromAcc ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
+              {fromCards.map((c) => <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}</option>)}
+            </Select>
+          </Field>
+        )}
         <Field label="Cuenta destino">
-          <Select value={toAcc} onChange={(e) => { setToAcc(e.target.value); setToCard(""); }}>
+          <Select value={toAcc} onChange={(e) => { const id = e.target.value; setToAcc(id); setToCard(cashCardId(id, accounts, cards) || ""); }}>
             <option value="">— Elegir cuenta —</option>
             {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
           </Select>
         </Field>
-        <Field label="Tarjeta destino">
-          <Select value={toCard} onChange={(e) => setToCard(e.target.value)} disabled={!toAcc}>
-            <option value="">{toAcc ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
-            {toCards.filter((c) => c.id !== fromCard).map((c) => <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}</option>)}
-          </Select>
-        </Field>
+        {!isToCash && (
+          <Field label="Tarjeta destino">
+            <Select value={toCard} onChange={(e) => setToCard(e.target.value)} disabled={!toAcc}>
+              <option value="">{toAcc ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
+              {toCards.filter((c) => c.id !== fromCard).map((c) => <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}</option>)}
+            </Select>
+          </Field>
+        )}
         <Field label="Monto (MXN)">
           <TextInput type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
         </Field>
@@ -225,6 +295,7 @@ function MovEditor({ mov, data, onSave, onCancel }) {
   const [error, setError] = useState("");
   const accCards = cards.filter((c) => c.accountId === accountId);
   const selectedCard = cards.find((c) => c.id === cardId);
+  const isCashAccount = cashCardId(accountId, accounts, cards) !== null;
   const isAdjust = !!mov.adjust; // los ajustes de saldo no llevan categoría ni MSI
   const isCreditExpense = !isAdjust && type === "gasto" && selectedCard?.type === "credito";
 
@@ -271,19 +342,21 @@ function MovEditor({ mov, data, onSave, onCancel }) {
           <TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </Field>
         <Field label="Cuenta">
-          <Select value={accountId} onChange={(e) => { setAccountId(e.target.value); setCardId(""); }}>
+          <Select value={accountId} onChange={(e) => { const id = e.target.value; setAccountId(id); setCardId(cashCardId(id, accounts, cards) || ""); }}>
             <option value="">— Elegir cuenta —</option>
             {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
           </Select>
         </Field>
-        <Field label="Tarjeta">
-          <Select value={cardId} onChange={(e) => setCardId(e.target.value)} disabled={!accountId}>
-            <option value="">{accountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
-            {accCards.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""}</option>
-            ))}
-          </Select>
-        </Field>
+        {!isCashAccount && (
+          <Field label="Tarjeta">
+            <Select value={cardId} onChange={(e) => setCardId(e.target.value)} disabled={!accountId}>
+              <option value="">{accountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
+              {accCards.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""}</option>
+              ))}
+            </Select>
+          </Field>
+        )}
         <Field label="Monto (MXN)">
           <TextInput type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
         </Field>
@@ -360,6 +433,8 @@ function TransferEditor({ mov, data, onSave, onCancel }) {
   const [error, setError] = useState("");
   const fromCards = cards.filter((c) => c.accountId === fromAcc);
   const toCards = cards.filter((c) => c.accountId === toAcc);
+  const isFromCash = cashCardId(fromAcc, accounts, cards) !== null;
+  const isToCash = cashCardId(toAcc, accounts, cards) !== null;
 
   const save = () => {
     const amt = parseFloat(amount);
@@ -378,29 +453,33 @@ function TransferEditor({ mov, data, onSave, onCancel }) {
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Field label="Cuenta origen">
-          <Select value={fromAcc} onChange={(e) => { setFromAcc(e.target.value); setFromCard(""); }}>
+          <Select value={fromAcc} onChange={(e) => { const id = e.target.value; setFromAcc(id); setFromCard(cashCardId(id, accounts, cards) || ""); }}>
             <option value="">— Elegir cuenta —</option>
             {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
           </Select>
         </Field>
-        <Field label="Tarjeta origen">
-          <Select value={fromCard} onChange={(e) => setFromCard(e.target.value)} disabled={!fromAcc}>
-            <option value="">{fromAcc ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
-            {fromCards.map((c) => <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}</option>)}
-          </Select>
-        </Field>
+        {!isFromCash && (
+          <Field label="Tarjeta origen">
+            <Select value={fromCard} onChange={(e) => setFromCard(e.target.value)} disabled={!fromAcc}>
+              <option value="">{fromAcc ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
+              {fromCards.map((c) => <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}</option>)}
+            </Select>
+          </Field>
+        )}
         <Field label="Cuenta destino">
-          <Select value={toAcc} onChange={(e) => { setToAcc(e.target.value); setToCard(""); }}>
+          <Select value={toAcc} onChange={(e) => { const id = e.target.value; setToAcc(id); setToCard(cashCardId(id, accounts, cards) || ""); }}>
             <option value="">— Elegir cuenta —</option>
             {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
           </Select>
         </Field>
-        <Field label="Tarjeta destino">
-          <Select value={toCard} onChange={(e) => setToCard(e.target.value)} disabled={!toAcc}>
-            <option value="">{toAcc ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
-            {toCards.filter((c) => c.id !== fromCard).map((c) => <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}</option>)}
-          </Select>
-        </Field>
+        {!isToCash && (
+          <Field label="Tarjeta destino">
+            <Select value={toCard} onChange={(e) => setToCard(e.target.value)} disabled={!toAcc}>
+              <option value="">{toAcc ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
+              {toCards.filter((c) => c.id !== fromCard).map((c) => <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}</option>)}
+            </Select>
+          </Field>
+        )}
         <Field label="Monto (MXN)">
           <TextInput type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
         </Field>
@@ -474,12 +553,25 @@ export default function Movimientos({ data, update }) {
   const [months, setMonths] = useState(3);
   const [commission, setCommission] = useState("");
   const [error, setError] = useState("");
+  // Pago dividido: una compra pagada con varios medios; cada fila es { cuenta, tarjeta, monto }
+  const [splitMode, setSplitMode] = useState(false);
+  const [splitRows, setSplitRows] = useState([{ accountId: "", cardId: "", amount: "" }, { accountId: "", cardId: "", amount: "" }]);
 
   const isTransfer = type === "transfer";
+  const isSplit = type === "gasto" && splitMode;
   const accCards = cards.filter((c) => c.accountId === accountId);
   const toAccCards = cards.filter((c) => c.accountId === toAccountId);
   const selectedCard = cards.find((c) => c.id === cardId);
-  const isCreditExpense = type === "gasto" && selectedCard?.type === "credito";
+  const isCreditExpense = type === "gasto" && !splitMode && selectedCard?.type === "credito";
+  // Efectivo: cuenta con una sola cartera; se autoselecciona y se oculta el selector de tarjeta
+  const isCashAccount = cashCardId(accountId, accounts, cards) !== null;
+  const isToCashAccount = cashCardId(toAccountId, accounts, cards) !== null;
+  const splitTotal = splitRows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+
+  // Actualiza una fila del pago dividido (y autoselecciona la cartera si es efectivo)
+  const setSplitRow = (i, patch) => setSplitRows((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const addSplitRow = () => setSplitRows((rows) => [...rows, { accountId: "", cardId: "", amount: "" }]);
+  const removeSplitRow = (i) => setSplitRows((rows) => (rows.length <= 1 ? rows : rows.filter((_, idx) => idx !== i)));
 
   const catById = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c])), [categories]);
   const cardById = useMemo(() => Object.fromEntries(cards.map((c) => [c.id, c])), [cards]);
@@ -487,15 +579,48 @@ export default function Movimientos({ data, update }) {
   const resetForm = () => {
     setType("gasto"); setAccountId(""); setCardId(""); setToAccountId(""); setToCardId(""); setAmount(""); setTitle(""); setDescription("");
     setCategoryId(""); setDate(todayISO()); setAMeses(false); setMonths(3); setCommission(""); setError("");
+    setSplitMode(false); setSplitRows([{ accountId: "", cardId: "", amount: "" }, { accountId: "", cardId: "", amount: "" }]);
+  };
+
+  // Pago dividido: crea un gasto por cada medio de pago, todos con el mismo splitId
+  const saveSplit = () => {
+    if (!title.trim()) return setError("Escribe un título para la compra.");
+    if (!categoryId) return setError("Elige una categoría (puedes crear más en la pestaña Categorías).");
+    const rows = splitRows
+      .map((r) => ({ cardId: r.cardId, amount: parseFloat(r.amount) || 0 }))
+      .filter((r) => r.cardId && r.amount > 0);
+    if (rows.length === 0) return setError("Agrega al menos un medio de pago con su monto.");
+    // El efectivo no puede quedar negativo (agrupa por tarjeta por si se repite)
+    const byCard = {};
+    rows.forEach((r) => { byCard[r.cardId] = (byCard[r.cardId] || 0) + r.amount; });
+    for (const cid of Object.keys(byCard)) {
+      const over = cashOverdraft(cards.find((c) => c.id === cid), movements, byCard[cid]);
+      if (over > 0) return setError(cashOverdraftMsg(over));
+    }
+    const t = title.trim();
+    const desc = description.trim();
+    if (rows.length === 1) {
+      // Un solo medio: es un gasto normal, sin marca de dividido
+      update({ movements: [{ id: uid(), cardId: rows[0].cardId, type: "gasto", amount: rows[0].amount, title: t, description: desc, categoryId, date, months: 1, commission: 0 }, ...movements] });
+    } else {
+      const sid = uid();
+      const legs = rows.map((r) => ({ id: uid(), cardId: r.cardId, type: "gasto", amount: r.amount, title: t, description: desc, categoryId, date, months: 1, commission: 0, split: true, splitId: sid }));
+      update({ movements: [...legs, ...movements] });
+    }
+    resetForm();
+    setShow(false);
   };
 
   const save = () => {
+    if (isSplit) return saveSplit();
     const amt = parseFloat(amount);
     if (!cardId) return setError(isTransfer ? "Elige la cuenta y tarjeta de origen." : "Elige una cuenta y una tarjeta.");
     if (!amt || amt <= 0) return setError("Escribe un monto mayor a cero.");
     if (isTransfer) {
       if (!toCardId) return setError("Elige la cuenta y tarjeta de destino.");
       if (toCardId === cardId) return setError("El origen y el destino deben ser distintos.");
+      const over = cashOverdraft(cards.find((c) => c.id === cardId), movements, amt);
+      if (over > 0) return setError(cashOverdraftMsg(over));
       const from = cards.find((c) => c.id === cardId);
       const to = cards.find((c) => c.id === toCardId);
       const tid = uid();
@@ -514,6 +639,10 @@ export default function Movimientos({ data, update }) {
     }
     if (!title.trim()) return setError("Escribe un título para el movimiento.");
     if (!categoryId) return setError("Elige una categoría (puedes crear más en la pestaña Categorías).");
+    if (type === "gasto") {
+      const over = cashOverdraft(cards.find((c) => c.id === cardId), movements, amt);
+      if (over > 0) return setError(cashOverdraftMsg(over));
+    }
     const mov = {
       id: uid(),
       cardId,
@@ -551,16 +680,30 @@ export default function Movimientos({ data, update }) {
     setEditId(null);
   };
 
-  // Al borrar una pata de una transferencia se borran las dos, para no descuadrar
+  // Al borrar una pata de una transferencia (o de un pago dividido) se borran todas
   const del = (id) => {
     const mov = movements.find((m) => m.id === id);
     if (mov?.transferId) return update({ movements: movements.filter((m) => m.transferId !== mov.transferId) });
+    if (mov?.splitId) return update({ movements: movements.filter((m) => m.splitId !== mov.splitId) });
     update({ movements: movements.filter((m) => m.id !== id) });
   };
 
   const sorted = [...movements].sort((a, b) => (a.date < b.date ? 1 : -1));
   const byCat = catFilter.length ? sorted.filter((m) => catFilter.includes(m.categoryId)) : sorted;
   const visibles = filterByPeriodo(byCat, periodo);
+
+  // Agrupa las patas de un pago dividido (mismo splitId) en una sola fila de la lista
+  const visibleRows = [];
+  const seenSplit = new Set();
+  for (const m of visibles) {
+    if (m.splitId) {
+      if (seenSplit.has(m.splitId)) continue;
+      seenSplit.add(m.splitId);
+      visibleRows.push({ kind: "split", splitId: m.splitId, legs: visibles.filter((x) => x.splitId === m.splitId), rep: m });
+    } else {
+      visibleRows.push({ kind: "single", m });
+    }
+  }
 
   const totalConComision = (parseFloat(amount) || 0) + (parseFloat(commission) || 0);
   const mensualidad = aMeses && months > 0 ? totalConComision / months : 0;
@@ -599,45 +742,70 @@ export default function Movimientos({ data, update }) {
             <Field label="Fecha">
               <TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} />
             </Field>
-            <Field label={isTransfer ? "Cuenta origen" : "Cuenta"}>
-              <Select value={accountId} onChange={(e) => { setAccountId(e.target.value); setCardId(""); }}>
-                <option value="">— Elegir cuenta —</option>
-                {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
-              </Select>
-            </Field>
-            <Field label={isTransfer ? "Tarjeta origen" : "Tarjeta"}>
-              <Select value={cardId} onChange={(e) => setCardId(e.target.value)} disabled={!accountId}>
-                <option value="">{accountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
-                {accCards.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            {isTransfer && (
+            {type === "gasto" && (
+              <div className="sm:col-span-2">
+                <button
+                  type="button"
+                  onClick={() => { setSplitMode((v) => !v); setError(""); }}
+                  className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-opacity hover:opacity-85"
+                  style={splitMode
+                    ? { background: C.accentSoft, color: C.accent, border: `1px solid ${C.accent}`, fontWeight: 600 }
+                    : { background: C.surface, color: C.muted, border: `1px solid ${C.border}` }}
+                >
+                  <IconSplit width={16} height={16} />
+                  {splitMode ? "Pago dividido activado" : "Pagar con varios medios"}
+                </button>
+              </div>
+            )}
+            {!isSplit && (
               <>
-                <Field label="Cuenta destino">
-                  <Select value={toAccountId} onChange={(e) => { setToAccountId(e.target.value); setToCardId(""); }}>
+                <Field label={isTransfer ? "Cuenta origen" : "Cuenta"}>
+                  <Select value={accountId} onChange={(e) => { const id = e.target.value; setAccountId(id); setCardId(cashCardId(id, accounts, cards) || ""); }}>
                     <option value="">— Elegir cuenta —</option>
                     {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
                   </Select>
                 </Field>
-                <Field label="Tarjeta destino">
-                  <Select value={toCardId} onChange={(e) => setToCardId(e.target.value)} disabled={!toAccountId}>
-                    <option value="">{toAccountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
-                    {toAccCards.filter((c) => c.id !== cardId).map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
+                {!isCashAccount && (
+                  <Field label={isTransfer ? "Tarjeta origen" : "Tarjeta"}>
+                    <Select value={cardId} onChange={(e) => setCardId(e.target.value)} disabled={!accountId}>
+                      <option value="">{accountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
+                      {accCards.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                )}
               </>
             )}
-            <Field label="Monto (MXN)">
-              <TextInput type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" />
-            </Field>
+            {isTransfer && (
+              <>
+                <Field label="Cuenta destino">
+                  <Select value={toAccountId} onChange={(e) => { const id = e.target.value; setToAccountId(id); setToCardId(cashCardId(id, accounts, cards) || ""); }}>
+                    <option value="">— Elegir cuenta —</option>
+                    {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
+                  </Select>
+                </Field>
+                {!isToCashAccount && (
+                  <Field label="Tarjeta destino">
+                    <Select value={toCardId} onChange={(e) => setToCardId(e.target.value)} disabled={!toAccountId}>
+                      <option value="">{toAccountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
+                      {toAccCards.filter((c) => c.id !== cardId).map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                )}
+              </>
+            )}
+            {!isSplit && (
+              <Field label="Monto (MXN)">
+                <TextInput type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" />
+              </Field>
+            )}
             {!isTransfer && (
               <Field label="Categoría">
                 <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
@@ -659,6 +827,62 @@ export default function Movimientos({ data, update }) {
               <TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Detalles extra del movimiento" />
             </Field>
           </div>
+
+          {/* Pago dividido: montos por cada medio de pago */}
+          {isSplit && (
+            <div className="mt-4 rounded-lg p-3" style={{ background: C.surface2, border: `1px solid ${C.border}` }}>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-medium">Medios de pago</p>
+                <span className="text-xs" style={{ color: C.muted }}>
+                  Total: <span className="font-mono" style={{ color: C.text }}>{money(splitTotal)}</span>
+                </span>
+              </div>
+              <div className="space-y-3">
+                {splitRows.map((r, i) => {
+                  const rowAccCards = cards.filter((c) => c.accountId === r.accountId);
+                  const rowIsCash = cashCardId(r.accountId, accounts, cards) !== null;
+                  return (
+                    <div key={i} className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <Field label="Cuenta">
+                        <Select value={r.accountId} onChange={(e) => { const id = e.target.value; setSplitRow(i, { accountId: id, cardId: cashCardId(id, accounts, cards) || "" }); }}>
+                          <option value="">— Elegir —</option>
+                          {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
+                        </Select>
+                      </Field>
+                      {rowIsCash ? (
+                        <Field label="Tarjeta">
+                          <div className="text-sm" style={{ padding: "9px 0", color: C.faint }}>Efectivo</div>
+                        </Field>
+                      ) : (
+                        <Field label="Tarjeta">
+                          <Select value={r.cardId} onChange={(e) => setSplitRow(i, { cardId: e.target.value })} disabled={!r.accountId}>
+                            <option value="">{r.accountId ? "— Elegir —" : "Primero la cuenta"}</option>
+                            {rowAccCards.map((c) => <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}</option>)}
+                          </Select>
+                        </Field>
+                      )}
+                      <div className="flex items-end gap-2">
+                        <div className="flex-1">
+                          <Field label="Monto (MXN)">
+                            <TextInput type="number" min="0" step="0.01" value={r.amount} onChange={(e) => setSplitRow(i, { amount: e.target.value })} placeholder="0.00" />
+                          </Field>
+                        </div>
+                        {splitRows.length > 1 && (
+                          <Btn kind="danger" onClick={() => removeSplitRow(i)} style={{ padding: "8px 10px" }} title="Quitar este medio">✕</Btn>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-2">
+                <Btn kind="ghost" onClick={addSplitRow} style={{ padding: "4px 10px" }}>+ Agregar medio</Btn>
+              </div>
+              <p className="text-xs mt-2" style={{ color: C.faint }}>
+                Cada medio se registra como un gasto en su cuenta; juntos forman una sola compra (la suma es el total). Se agrupan en un solo movimiento en la lista.
+              </p>
+            </div>
+          )}
 
           {/* Opciones exclusivas de tarjeta de crédito */}
           {isCreditExpense && (
@@ -776,7 +1000,44 @@ export default function Movimientos({ data, update }) {
         <Empty>Sin movimientos en este periodo.</Empty>
       ) : (
         <div className="space-y-2">
-          {visibles.map((m) => {
+          {visibleRows.map((row) => {
+            // Pago dividido: una sola tarjeta que agrupa todas las patas
+            if (row.kind === "split") {
+              const { legs, rep } = row;
+              const total = legs.reduce((s, l) => s + movTotal(l), 0);
+              const cat = catById[rep.categoryId];
+              return (
+                <Card key={row.splitId} className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium truncate">{rep.title || rep.description || "Compra"}</span>
+                      {cat && <Chip>{cat.name}</Chip>}
+                      <Chip color={C.blue}>Pago dividido</Chip>
+                    </div>
+                    {rep.title && rep.description && (
+                      <p className="text-xs mt-0.5" style={{ color: C.muted }}>{rep.description}</p>
+                    )}
+                    <ul className="mt-1 space-y-0.5">
+                      {legs.map((l) => {
+                        const lc = cardById[l.cardId];
+                        return (
+                          <li key={l.id} className="text-xs flex justify-between gap-3" style={{ color: C.faint }}>
+                            <span className="truncate">{lc ? cardLabel(lc, accounts) : "Tarjeta eliminada"}</span>
+                            <span className="font-mono" style={{ fontVariantNumeric: "tabular-nums" }}>{money(movTotal(l))}</span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    <p className="text-xs mt-1" style={{ color: C.faint }}>{rep.date}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Amount value={total} sign="-" size="text-sm" />
+                    <Btn kind="danger" onClick={() => del(rep.id)} style={{ padding: "4px 8px" }}>✕</Btn>
+                  </div>
+                </Card>
+              );
+            }
+            const m = row.m;
             const cat = catById[m.categoryId];
             const card = cardById[m.cardId];
             const isGasto = m.type === "gasto";

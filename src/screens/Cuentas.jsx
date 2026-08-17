@@ -15,6 +15,11 @@ const HINT_PAGO = (
     Es la fecha máxima para pagar tu tarjeta sin que te cobren intereses. Si pagas el total antes de ese día, no generas intereses. Suele caer unos 20 días después del corte.
   </InfoHint>
 );
+const HINT_LIMITE = (
+  <InfoHint title="Crédito máximo">
+    Es el límite total de tu tarjeta (la "línea de crédito"). Con este dato, en la pantalla principal verás una barra con el porcentaje que ya usaste y un aviso cuando te acerques al tope. Déjalo vacío si no lo quieres registrar.
+  </InfoHint>
+);
 
 export default function Cuentas({ data, update }) {
   const C = useTheme();
@@ -34,6 +39,7 @@ export default function Cuentas({ data, update }) {
   const [cardRate, setCardRate] = useState("");
   const [cardCutDay, setCardCutDay] = useState("");
   const [cardPayDay, setCardPayDay] = useState("");
+  const [cardLimit, setCardLimit] = useState("");
   const [editBalFor, setEditBalFor] = useState(null); // cardId
   const [newBal, setNewBal] = useState("");
   const [newRate, setNewRate] = useState("");
@@ -41,10 +47,11 @@ export default function Cuentas({ data, update }) {
   const [newCutDay, setNewCutDay] = useState("");
   const [newPayDay, setNewPayDay] = useState("");
   const [newDigital4, setNewDigital4] = useState("");
+  const [newLimit, setNewLimit] = useState("");
 
   const resetCardForm = () => {
     setCardName(""); setCardType("debito"); setCardLast4(""); setCardDigital4("");
-    setCardRate(""); setCardCutDay(""); setCardPayDay("");
+    setCardRate(""); setCardCutDay(""); setCardPayDay(""); setCardLimit("");
   };
 
   const addAccount = () => {
@@ -118,6 +125,8 @@ export default function Cuentas({ data, update }) {
     if (cardType === "credito") {
       card.cutDay = clampDay(cardCutDay);
       card.payDay = clampDay(cardPayDay);
+      const lim = parseFloat(cardLimit);
+      if (lim > 0) card.limit = lim;
     }
     if (cardType !== "ahorro" && cardDigital4) {
       card.digitalLast4 = cardDigital4;
@@ -141,6 +150,7 @@ export default function Cuentas({ data, update }) {
     setNewCutDay(clampDay(card.cutDay) ? String(card.cutDay) : "");
     setNewPayDay(clampDay(card.payDay) ? String(card.payDay) : "");
     setNewDigital4(card.digitalLast4 || "");
+    setNewLimit(Number(card.limit) > 0 ? String(card.limit) : "");
   };
 
   const saveBalance = (card) => {
@@ -157,6 +167,8 @@ export default function Cuentas({ data, update }) {
       const cd = clampDay(newCutDay), pd = clampDay(newPayDay);
       if (cd !== clampDay(card.cutDay)) cardPatch.cutDay = cd;
       if (pd !== clampDay(card.payDay)) cardPatch.payDay = pd;
+      const lim = parseFloat(newLimit) || 0;
+      if (lim !== (Number(card.limit) || 0)) cardPatch.limit = lim;
     }
     // Actualizar interés si es deuda
     if (card.type === "deuda") {
@@ -352,6 +364,9 @@ export default function Cuentas({ data, update }) {
                       <Field label="Día límite de pago (1–31)" hint={HINT_PAGO}>
                         <TextInput type="number" min="1" max="31" value={cardPayDay} onChange={(e) => setCardPayDay(e.target.value)} placeholder="Ej. 5" />
                       </Field>
+                      <Field label="Crédito máximo (opcional)" hint={HINT_LIMITE}>
+                        <TextInput type="number" min="0" step="0.01" value={cardLimit} onChange={(e) => setCardLimit(e.target.value)} placeholder="Ej. 30000" />
+                      </Field>
                     </>
                   )}
                 </div>
@@ -395,6 +410,7 @@ export default function Cuentas({ data, update }) {
                       ? `Interés ${card.rate}% ${card.ratePeriod === "mensual" ? "mensual" : "anual"} · crece a diario`
                       : "Sin interés"),
                     isCredit && clampDay(card.cutDay) && `Corte día ${card.cutDay}${clampDay(card.payDay) ? ` · Pago día ${card.payDay}` : ""}`,
+                    isCredit && Number(card.limit) > 0 && `Límite ${money(card.limit)}`,
                     card.digitalLast4 && `Digital ····${card.digitalLast4}`,
                     card.excluded && "No contabilizada",
                   ].filter(Boolean).join(" · ");
@@ -459,6 +475,9 @@ export default function Cuentas({ data, update }) {
                                 </Field>
                                 <Field label="Día límite de pago (1–31)" hint={HINT_PAGO}>
                                   <TextInput type="number" min="1" max="31" value={newPayDay} onChange={(e) => setNewPayDay(e.target.value)} placeholder="Ej. 5" />
+                                </Field>
+                                <Field label="Crédito máximo (opcional)" hint={HINT_LIMITE}>
+                                  <TextInput type="number" min="0" step="0.01" value={newLimit} onChange={(e) => setNewLimit(e.target.value)} placeholder="Ej. 30000" />
                                 </Field>
                               </>
                             )}

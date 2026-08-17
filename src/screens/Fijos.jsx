@@ -5,6 +5,14 @@ import { money, uid, todayISO, fmtDia } from "../utils/format";
 import { cardLabel, clampDay, clampWeekday, nextChargeOf, cardTypeLabel, recurringFreqLabel, monthlyEquivalent } from "../lib/finance";
 import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty } from "../components/ui";
 
+// Una cuenta de efectivo tiene una única cartera; devuelve su id (para autoseleccionarla
+// y ocultar el selector de tarjeta), o null si la cuenta no es de efectivo.
+function cashCardId(accountId, accounts, cards) {
+  const acc = accounts.find((a) => a.id === accountId);
+  if (acc?.type !== "efectivo") return null;
+  return cards.find((c) => c.accountId === accountId && c.type === "efectivo")?.id || null;
+}
+
 // Formulario de cargo fijo, para crear (initial vacío) o editar (initial = cargo existente)
 function FijoForm({ data, initial, onSave, onCancel }) {
   const C = useTheme();
@@ -13,6 +21,7 @@ function FijoForm({ data, initial, onSave, onCancel }) {
   const [title, setTitle] = useState(initial ? (initial.title || initial.description || "") : "");
   const [description, setDescription] = useState(initial && initial.title ? (initial.description || "") : "");
   const [amount, setAmount] = useState(initial ? String(initial.amount) : "");
+  const [kind, setKind] = useState(initial?.type === "ingreso" ? "ingreso" : "gasto"); // cargo (gasto) o abono (ingreso)
   const [accountId, setAccountId] = useState(initCard ? initCard.accountId : "");
   const [cardId, setCardId] = useState(initial ? initial.cardId : "");
   const [categoryId, setCategoryId] = useState(initial ? (initial.categoryId || "") : "");
@@ -23,12 +32,14 @@ function FijoForm({ data, initial, onSave, onCancel }) {
   const [endDate, setEndDate] = useState(initial?.endDate || "");
   const [error, setError] = useState("");
   const accCards = cards.filter((c) => c.accountId === accountId);
+  const isCashAccount = cashCardId(accountId, accounts, cards) !== null;
+  const isAbono = kind === "ingreso";
 
   const save = () => {
-    if (!title.trim()) return setError("Escribe un título (ej. Netflix, Spotify…).");
+    if (!title.trim()) return setError(isAbono ? "Escribe un título (ej. Ahorro mensual…)." : "Escribe un título (ej. Netflix, Spotify…).");
     const amt = parseFloat(amount);
     if (!amt || amt <= 0) return setError("Escribe un monto mayor a cero.");
-    if (!cardId) return setError("Elige la cuenta y tarjeta donde se cobra.");
+    if (!cardId) return setError(isAbono ? "Elige la cuenta y tarjeta donde se abona." : "Elige la cuenta y tarjeta donde se cobra.");
     if (!categoryId) return setError("Elige una categoría.");
     const ev = Math.max(1, parseInt(every, 10) || 1);
     let freqFields;
@@ -45,6 +56,7 @@ function FijoForm({ data, initial, onSave, onCancel }) {
       title: title.trim(),
       description: description.trim(),
       amount: amt,
+      type: kind,
       cardId,
       categoryId,
       ...freqFields,
@@ -61,8 +73,14 @@ function FijoForm({ data, initial, onSave, onCancel }) {
         </div>
       )}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Field label="Tipo">
+          <Select value={kind} onChange={(e) => setKind(e.target.value)}>
+            <option value="gasto">Cargo (gasto)</option>
+            <option value="ingreso">Abono (ingreso)</option>
+          </Select>
+        </Field>
         <Field label="Título">
-          <TextInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ej. Netflix, Spotify, gimnasio…" />
+          <TextInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder={isAbono ? "Ej. Ahorro mensual, quincena…" : "Ej. Netflix, Spotify, gimnasio…"} />
         </Field>
         <Field label="Descripción (opcional)">
           <TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Detalles extra" />
@@ -91,21 +109,23 @@ function FijoForm({ data, initial, onSave, onCancel }) {
           </Field>
         )}
         <Field label="Cuenta">
-          <Select value={accountId} onChange={(e) => { setAccountId(e.target.value); setCardId(""); }}>
+          <Select value={accountId} onChange={(e) => { const id = e.target.value; setAccountId(id); setCardId(cashCardId(id, accounts, cards) || ""); }}>
             <option value="">— Elegir cuenta —</option>
             {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
           </Select>
         </Field>
-        <Field label="Tarjeta donde se cobra">
-          <Select value={cardId} onChange={(e) => setCardId(e.target.value)} disabled={!accountId}>
-            <option value="">{accountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
-            {accCards.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}
-              </option>
-            ))}
-          </Select>
-        </Field>
+        {!isCashAccount && (
+          <Field label={isAbono ? "Tarjeta donde se abona" : "Tarjeta donde se cobra"}>
+            <Select value={cardId} onChange={(e) => setCardId(e.target.value)} disabled={!accountId}>
+              <option value="">{accountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
+              {accCards.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
         <Field label="Categoría">
           <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
             <option value="">— Elegir categoría —</option>
@@ -123,11 +143,13 @@ function FijoForm({ data, initial, onSave, onCancel }) {
         </Field>
       </div>
       <p className="text-xs mt-2" style={{ color: C.faint }}>
-        El gasto se registra solo según la frecuencia que elijas (cada semana, cada mes, cada N meses…). Si el mes no tiene ese día, se usa el último día del mes. Con fecha de fin, se deja de cobrar después de esa fecha.
+        {isAbono
+          ? "El abono (ingreso) se registra solo en la cuenta que elijas según la frecuencia. Útil para ahorros o depósitos recurrentes. Si el mes no tiene ese día, se usa el último día del mes."
+          : "El gasto se registra solo según la frecuencia que elijas (cada semana, cada mes, cada N meses…). Si el mes no tiene ese día, se usa el último día del mes. Con fecha de fin, se deja de cobrar después de esa fecha."}
       </p>
       {error && <p className="text-xs mt-3" style={{ color: C.red }}>{error}</p>}
       <div className="mt-4">
-        <Btn onClick={save}>{initial ? "Guardar cambios" : "Guardar cargo fijo"}</Btn>
+        <Btn onClick={save}>{initial ? "Guardar cambios" : isAbono ? "Guardar abono fijo" : "Guardar cargo fijo"}</Btn>
       </div>
     </Card>
   );
@@ -144,7 +166,8 @@ export default function Fijos({ data, update }) {
   const catById = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c])), [categories]);
 
   const activos = recurring.filter((r) => nextChargeOf(r) !== null);
-  const totalMensual = activos.reduce((s, r) => s + monthlyEquivalent(r), 0);
+  const totalCargos = activos.filter((r) => r.type !== "ingreso").reduce((s, r) => s + monthlyEquivalent(r), 0);
+  const totalAbonos = activos.filter((r) => r.type === "ingreso").reduce((s, r) => s + monthlyEquivalent(r), 0);
 
   const addFijo = (fields) => {
     update({ recurring: [...recurring, { id: uid(), createdAt: todayISO(), lastApplied: null, ...fields }] });
@@ -163,15 +186,23 @@ export default function Fijos({ data, update }) {
 
   return (
     <div className="space-y-4">
-      <SectionTitle right={<Btn onClick={() => setShow((v) => !v)}>{show ? "Cancelar" : "+ Nuevo cargo fijo"}</Btn>}>
-        Cargos fijos
+      <SectionTitle right={<Btn onClick={() => setShow((v) => !v)}>{show ? "Cancelar" : "+ Nuevo fijo"}</Btn>}>
+        Cargos y abonos fijos
       </SectionTitle>
 
       {activos.length > 0 && (
-        <Card className="flex items-center justify-between">
-          <p className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>Total fijo al mes (aprox.)</p>
-          <Amount value={totalMensual} sign="-" size="text-xl" />
-        </Card>
+        <div className={`grid grid-cols-1 ${totalAbonos > 0 ? "sm:grid-cols-2" : ""} gap-3`}>
+          <Card className="flex items-center justify-between">
+            <p className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>Cargos al mes (aprox.)</p>
+            <Amount value={totalCargos} sign="-" size="text-xl" />
+          </Card>
+          {totalAbonos > 0 && (
+            <Card className="flex items-center justify-between">
+              <p className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>Abonos al mes (aprox.)</p>
+              <Amount value={totalAbonos} sign="+" size="text-xl" />
+            </Card>
+          )}
+        </div>
       )}
 
       {show && <FijoForm data={data} onSave={addFijo} onCancel={() => setShow(false)} />}
@@ -187,11 +218,15 @@ export default function Fijos({ data, update }) {
             const card = cardById[r.cardId];
             const cat = catById[r.categoryId];
             const next = nextChargeOf(r);
+            const isAbono = r.type === "ingreso";
             return (
               <Card key={r.id} className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-medium truncate">{r.title || r.description}</span>
+                    {isAbono
+                      ? <Chip color={C.green} bg={C.accentSoft}>Abono</Chip>
+                      : <Chip color={C.amber} bg={C.amberSoft}>Cargo</Chip>}
                     {cat && <Chip>{cat.name}</Chip>}
                     <Chip color={C.faint}>{recurringFreqLabel(r)}</Chip>
                     {r.endDate && <Chip color={C.amber} bg={C.amberSoft}>Hasta {r.endDate}</Chip>}
@@ -202,11 +237,11 @@ export default function Fijos({ data, update }) {
                   )}
                   <p className="text-xs mt-1" style={{ color: C.faint }}>
                     {card ? cardLabel(card, accounts) : "Tarjeta eliminada"}
-                    {next && <> · próximo cobro: {fmtDia(next)}</>}
+                    {next && <> · próximo {isAbono ? "abono" : "cobro"}: {fmtDia(next)}</>}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <Amount value={Number(r.amount) || 0} sign="-" size="text-sm" />
+                  <Amount value={Number(r.amount) || 0} sign={isAbono ? "+" : "-"} size="text-sm" />
                   <Btn kind="ghost" onClick={() => setEditId(r.id)} style={{ padding: "4px 8px" }}>✎</Btn>
                   <Btn kind="danger" onClick={() => del(r)} style={{ padding: "4px 8px" }}>✕</Btn>
                 </div>

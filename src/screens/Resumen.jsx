@@ -2,8 +2,8 @@ import { useState, useMemo } from "react";
 import { useTheme } from "../theme";
 import { MONTH_NAMES } from "../constants";
 import { money, uid, todayISO, isoOf, fmtDia } from "../utils/format";
-import { cardLabel, movTotal, balanceOfCard, creditStatement, clampDay, isDebtType } from "../lib/finance";
-import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty } from "../components/ui";
+import { cardLabel, movTotal, balanceOfCard, creditStatement, clampDay, isDebtType, creditUsage, cashOverdraft } from "../lib/finance";
+import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty, InfoHint } from "../components/ui";
 import GraficaMensual from "../components/GraficaMensual";
 import GraficaCategorias from "../components/GraficaCategorias";
 
@@ -57,6 +57,9 @@ export default function Resumen({ data, update }) {
 
   const sum = (obj) => Object.values(obj).reduce((s, v) => s + v, 0);
 
+  // Color de la barra de uso de crédito: verde con margen, ámbar apretado, rojo al tope
+  const usageColor = (ratio) => (ratio >= 0.9 ? C.red : ratio >= 0.7 ? C.amber : C.green);
+
   // Dinero disponible (débito, ahorro y efectivo) de lo contabilizado
   const availableBalance = cards
     .filter((c) => isCountedCard(c) && !isDebtType(c.type))
@@ -79,14 +82,15 @@ export default function Resumen({ data, update }) {
   // Por pagar este mes: saldo al corte (con mensualidades MSI); sin día de corte, la deuda completa
   const totalToPayAll = debtByCard.reduce((s, d) => s + (d.statement ? d.statement.toPay : Math.max(d.debt, 0)), 0);
 
-  // Pago de tarjeta: transferencia (no cuenta como gasto/ingreso en la contabilización)
-  const sourceCards = cards.filter((c) => c.type !== "credito");
+  // Pago de tarjeta de crédito o de deuda: transferencia (no cuenta como gasto/ingreso).
+  // El origen puede ser cualquier cuenta con dinero disponible (no crédito ni otra deuda).
+  const sourceCards = cards.filter((c) => c.type !== "credito" && c.type !== "deuda");
   const openPay = (card, statement, debt) => {
     if (payFor === card.id) { setPayFor(null); return; }
     setPayFor(card.id);
     setPaySrc("");
     // Con día de corte configurado se propone el pago del mes (saldo al corte),
-    // aunque sea $0; solo sin corte se propone la deuda total.
+    // aunque sea $0; sin corte (o en deudas) se propone la deuda total.
     setPayAmt((statement ? statement.toPay : Math.max(debt, 0)).toFixed(2));
     setPayDate(todayISO());
     setPayError("");
@@ -96,17 +100,75 @@ export default function Resumen({ data, update }) {
     const src = cards.find((c) => c.id === paySrc);
     if (!src) return setPayError("Elige la cuenta desde la que pagas.");
     if (!amt || amt <= 0) return setPayError("Escribe un monto mayor a cero.");
+    const over = cashOverdraft(src, movements, amt);
+    if (over > 0) return setPayError(`Tu efectivo no alcanza: quedaría en −${money(over)}. El efectivo no puede quedar negativo; paga desde otra cuenta o registra una deuda.`);
+    const isDebt = card.type === "deuda";
+    const targetName = isDebt ? (accById[card.accountId]?.name || "deuda") : card.name;
+    const label = isDebt ? `Pago de deuda ${targetName}` : `Pago de tarjeta ${targetName}`;
     const tid = uid();
     const base = { categoryId: null, date: payDate, months: 1, commission: 0, transfer: true, transferId: tid };
     update({
       movements: [
-        { ...base, id: uid(), cardId: src.id, type: "gasto", amount: amt, title: `Pago de tarjeta ${card.name}` },
+        { ...base, id: uid(), cardId: src.id, type: "gasto", amount: amt, title: label },
         { ...base, id: uid(), cardId: card.id, type: "ingreso", amount: amt, title: `Pago desde ${src.name}` },
         ...movements,
       ],
     });
     setPayFor(null); setPayError("");
   };
+
+  // Elimina una deuda ya liquidada: quita su cuenta, su tarjeta y sus movimientos
+  // internos (deuda inicial, intereses y las patas de ingreso de los pagos). Las
+  // patas de gasto de los pagos (que salieron de otras cuentas) se conservan como
+  // registro, así el balance no cambia.
+  const deleteDebt = (card) => {
+    if (!window.confirm("La deuda está liquidada. Se eliminará la cuenta de deuda y sus movimientos internos; los pagos que hiciste desde otras cuentas se conservan. ¿Continuar?")) return;
+    update({
+      accounts: accounts.filter((a) => a.id !== card.accountId),
+      cards: cards.filter((c) => c.id !== card.id),
+      movements: movements.filter((m) => m.cardId !== card.id),
+    });
+    if (payFor === card.id) setPayFor(null);
+  };
+
+  // Editor de pago reutilizable (tarjetas de crédito y deudas)
+  const payEditor = (card, statement, debt) => (
+    <div className="mt-3 rounded-lg p-3" style={{ background: C.surface2, border: `1px solid ${C.border}` }}>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <Field label="Pagar desde">
+          <Select value={paySrc} onChange={(e) => setPaySrc(e.target.value)}>
+            <option value="">— Elegir cuenta —</option>
+            {sourceCards.map((c) => (
+              <option key={c.id} value={c.id}>{cardLabel(c, accounts)} · {money(balanceOfCard(c, movements))}</option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Monto (MXN)">
+          <TextInput type="number" min="0" step="0.01" value={payAmt} onChange={(e) => setPayAmt(e.target.value)} />
+        </Field>
+        <Field label="Fecha">
+          <TextInput type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} />
+        </Field>
+      </div>
+      {statement ? (
+        <p className="text-xs mt-2" style={{ color: C.muted }}>
+          Pago del mes sugerido: <span className="font-mono" style={{ color: C.amber }}>{money(statement.toPay)}</span>
+          {" · "}Deuda total: <span className="font-mono">{money(debt)}</span>
+        </p>
+      ) : (
+        <p className="text-xs mt-2" style={{ color: C.muted }}>
+          Saldo por pagar: <span className="font-mono" style={{ color: C.red }}>{money(Math.max(debt, 0))}</span>
+        </p>
+      )}
+      {payError && <p className="text-xs mt-2" style={{ color: C.red }}>{payError}</p>}
+      <p className="text-xs mt-2" style={{ color: C.faint }}>
+        Se registra como transferencia: baja {card.type === "deuda" ? "la deuda" : "la deuda de la tarjeta"} y el saldo de la cuenta elegida, sin contarse como gasto ni ingreso del mes.
+      </p>
+      <div className="mt-3">
+        <Btn onClick={() => doPay(card)}>Registrar pago</Btn>
+      </div>
+    </div>
+  );
 
   // Cajas de ahorro
   const savingsCards = cards.filter((c) => c.type === "ahorro" && isCountedCard(c));
@@ -304,19 +366,35 @@ export default function Resumen({ data, update }) {
             {debtAccCards.map((c) => {
               const acc = accById[c.accountId];
               const bal = balanceOfCard(c, movements);
+              const liquidada = bal <= 0.005;
               return (
-                <Card key={c.id} className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <span className="text-sm truncate">{acc ? acc.name : "Deuda"}</span>
-                    <p className="text-xs mt-1" style={{ color: C.faint }}>
-                      {Number(c.rate) > 0
-                        ? `Interés ${c.rate}% ${c.ratePeriod === "mensual" ? "mensual" : "anual"} · crece a diario`
-                        : "Sin interés"} · abónale con una transferencia
-                    </p>
+                <Card key={c.id}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <span className="text-sm truncate">{acc ? acc.name : "Deuda"}</span>
+                      <p className="text-xs mt-1" style={{ color: C.faint }}>
+                        {Number(c.rate) > 0
+                          ? `Interés ${c.rate}% ${c.ratePeriod === "mensual" ? "mensual" : "anual"} · crece a diario`
+                          : "Sin interés"}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-xs" style={{ color: C.faint }}>{liquidada ? "Liquidada" : "Debes"}</p>
+                      <span className="font-mono text-sm" style={{ color: liquidada ? C.green : C.red, fontVariantNumeric: "tabular-nums" }}>
+                        {money(Math.max(bal, 0))}
+                      </span>
+                    </div>
                   </div>
-                  <span className="font-mono text-sm shrink-0" style={{ color: bal > 0 ? C.red : C.green, fontVariantNumeric: "tabular-nums" }}>
-                    {money(bal)}
-                  </span>
+                  <div className="flex gap-2 mt-2 justify-end flex-wrap">
+                    {liquidada ? (
+                      <Btn kind="danger" onClick={() => deleteDebt(c)} style={{ padding: "6px 14px" }}>Eliminar deuda</Btn>
+                    ) : (
+                      <Btn kind={payFor === c.id ? "ghost" : "primary"} onClick={() => openPay(c, null, bal)} style={{ padding: "6px 14px" }}>
+                        {payFor === c.id ? "Cancelar" : "Pagar deuda"}
+                      </Btn>
+                    )}
+                  </div>
+                  {payFor === c.id && payEditor(c, null, bal)}
                 </Card>
               );
             })}
@@ -333,7 +411,9 @@ export default function Resumen({ data, update }) {
             Tarjetas de crédito
           </SectionTitle>
           <div className="space-y-2">
-            {debtByCard.map(({ card, debt, statement }) => (
+            {debtByCard.map(({ card, debt, statement }) => {
+              const usage = creditUsage(card, movements);
+              return (
               <Card key={card.id}>
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div className="min-w-0">
@@ -358,6 +438,28 @@ export default function Resumen({ data, update }) {
                     </span>
                   </div>
                 </div>
+
+                {/* Barra de uso del crédito respecto al límite configurado */}
+                {usage && (
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between mb-1 gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs" style={{ color: C.faint }}>Uso del crédito</span>
+                        {usage.ratio >= 0.7 && (
+                          <InfoHint title="Estás usando gran parte de tu crédito" icon="!" color={C.red}>
+                            Vas en el {Math.round(usage.ratio * 100)}% de tu límite ({money(usage.debt)} de {money(usage.limit)}). Un uso alto te deja poco margen ante imprevistos y, si se reporta al buró, puede afectar tu historial (lo ideal es mantenerlo por debajo del 30%). Procura pagar más del mínimo para bajar el saldo, evita nuevas compras grandes en esta tarjeta y, cuando puedas, reparte tus gastos en otros medios.
+                          </InfoHint>
+                        )}
+                      </div>
+                      <span className="text-xs font-mono" style={{ color: usageColor(usage.ratio), fontVariantNumeric: "tabular-nums" }}>
+                        {Math.round(usage.ratio * 100)}% · {money(usage.available)} disponible
+                      </span>
+                    </div>
+                    <div style={{ background: C.bg, borderRadius: 6, height: 8, overflow: "hidden", border: `1px solid ${C.borderSoft}` }}>
+                      <div style={{ width: `${Math.min(usage.ratio, 1) * 100}%`, background: usageColor(usage.ratio), height: "100%", borderRadius: 6, minWidth: usage.ratio > 0 ? 4 : 0 }} />
+                    </div>
+                  </div>
+                )}
 
                 {statement ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
@@ -389,41 +491,10 @@ export default function Resumen({ data, update }) {
                   </div>
                 )}
 
-                {payFor === card.id && (
-                  <div className="mt-3 rounded-lg p-3" style={{ background: C.surface2, border: `1px solid ${C.border}` }}>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <Field label="Pagar desde">
-                        <Select value={paySrc} onChange={(e) => setPaySrc(e.target.value)}>
-                          <option value="">— Elegir cuenta —</option>
-                          {sourceCards.map((c) => (
-                            <option key={c.id} value={c.id}>{cardLabel(c, accounts)} · {money(balanceOfCard(c, movements))}</option>
-                          ))}
-                        </Select>
-                      </Field>
-                      <Field label="Monto (MXN)">
-                        <TextInput type="number" min="0" step="0.01" value={payAmt} onChange={(e) => setPayAmt(e.target.value)} />
-                      </Field>
-                      <Field label="Fecha">
-                        <TextInput type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} />
-                      </Field>
-                    </div>
-                    {statement && (
-                      <p className="text-xs mt-2" style={{ color: C.muted }}>
-                        Pago del mes sugerido: <span className="font-mono" style={{ color: C.amber }}>{money(statement.toPay)}</span>
-                        {" · "}Deuda total: <span className="font-mono">{money(debt)}</span>
-                      </p>
-                    )}
-                    {payError && <p className="text-xs mt-2" style={{ color: C.red }}>{payError}</p>}
-                    <p className="text-xs mt-2" style={{ color: C.faint }}>
-                      Se registra como transferencia: baja la deuda de la tarjeta y el saldo de la cuenta elegida, sin contarse como gasto ni ingreso del mes.
-                    </p>
-                    <div className="mt-3">
-                      <Btn onClick={() => doPay(card)}>Registrar pago</Btn>
-                    </div>
-                  </div>
-                )}
+                {payFor === card.id && payEditor(card, statement, debt)}
               </Card>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

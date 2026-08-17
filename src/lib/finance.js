@@ -25,6 +25,23 @@ export function balanceOfCard(card, movements) {
   return isDebtType(card.type) ? g - p : p - g;
 }
 
+// Uso de una tarjeta de crédito respecto a su límite. Devuelve null si no se
+// configuró un crédito máximo. `ratio` puede pasar de 1 si se rebasó el límite.
+export function creditUsage(card, movements) {
+  const limit = Number(card.limit) || 0;
+  if (limit <= 0) return null;
+  const debt = Math.max(balanceOfCard(card, movements), 0);
+  return { debt, limit, available: Math.max(limit - debt, 0), ratio: debt / limit };
+}
+
+// Cuánto quedaría en negativo una cuenta de efectivo si se le carga `amount`
+// (0 si no aplica o si no se pasa). El efectivo no puede quedar por debajo de 0.
+export function cashOverdraft(card, movements, amount) {
+  if (!card || card.type !== "efectivo") return 0;
+  const after = balanceOfCard(card, movements) - (Number(amount) || 0);
+  return after < 0 ? Math.round(-after * 100) / 100 : 0;
+}
+
 // ---------- Corte y pago de tarjetas de crédito ----------
 export const clampDay = (v) => { const n = parseInt(v, 10); return n >= 1 && n <= 31 ? n : null; };
 
@@ -171,7 +188,7 @@ export function applyRecurring(data) {
       generated.push({
         id: uid(),
         cardId: r.cardId,
-        type: "gasto",
+        type: r.type === "ingreso" ? "ingreso" : "gasto",
         amount: Number(r.amount) || 0,
         title: r.title || r.description || "Cargo fijo",
         description: r.title ? (r.description || "") : "",
