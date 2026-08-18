@@ -45,7 +45,31 @@ const FAQ = [
   },
   {
     q: "¿Cómo funciona la lectura de notificaciones?",
-    a: "Es una función opcional, apagada de fábrica. Todo se configura aquí en Ajustes → \"Registrar cargos desde notificaciones\": actívala, toca \"Permitir acceso\" para habilitar Mis Finanzas en los ajustes del sistema, y elige tus bancos de la lista de apps instaladas. A partir de ahí, sus cargos aparecerán en la pestaña Movimientos, en \"Por confirmar\", con el monto y la tarjeta ya detectados y sin repetir el mismo cargo dos veces. La lectura ocurre solo en tu teléfono, y puedes desactivar todo cuando quieras.",
+    a: "Es una función opcional, apagada de fábrica. Todo se configura aquí en Ajustes → \"Registrar cargos desde notificaciones\": actívala, toca \"Permitir acceso\" para habilitar Mis Finanzas en los ajustes del sistema, y elige tus bancos de la lista de apps instaladas. A partir de ahí, sus cargos aparecerán en la pestaña Movimientos, en \"Por confirmar\", con el monto y la tarjeta ya detectados y sin repetir el mismo cargo dos veces. Al confirmar, cada cargo lo puedes dejar como gasto, ingreso o marcarlo como transferencia entre tus cuentas. La lectura ocurre solo en tu teléfono, y puedes desactivar todo cuando quieras.",
+  },
+  {
+    q: "¿Puedo pagar una compra con varias cuentas o tarjetas?",
+    a: "Sí. En Movimientos → \"Nuevo movimiento\" (tipo Gasto) activa \"Pagar con varios medios\": pon el monto de cada cuenta o tarjeta usada y el total se suma solo. En la lista aparece como un único movimiento con el desglose de cada medio. Es útil cuando una compra la cubriste, por ejemplo, con efectivo y una tarjeta.",
+  },
+  {
+    q: "¿Para qué sirve el \"crédito máximo\" de una tarjeta?",
+    a: "Si registras el límite de tu tarjeta de crédito (en Cuentas), en la pantalla principal verás una barra con el porcentaje que ya usaste. Cambia de verde a ámbar y a rojo conforme te acercas al tope, y muestra un aviso con consejos cuando el uso es alto. Mantener un uso bajo (idealmente menos del 30%) te deja margen y cuida tu historial.",
+  },
+  {
+    q: "¿Por qué no me deja dejar el efectivo en negativo?",
+    a: "El dinero en efectivo no puede ser menor a cero (no puedes gastar lo que no tienes en la cartera). Si un movimiento dejaría tu efectivo en negativo, la app te avisa y te sugiere registrar una Deuda para ese dinero que en realidad debes.",
+  },
+  {
+    q: "¿Cómo pago o elimino una deuda?",
+    a: "En la pantalla principal, en la sección Deudas, usa \"Pagar deuda\": eliges desde qué cuenta pagas y el monto. El pago queda registrado como movimiento y baja la deuda sin contarse como gasto del mes. Cuando la saldas por completo aparece \"Liquidada\" y el botón \"Eliminar deuda\" para quitarla (los pagos que hiciste se conservan como registro).",
+  },
+  {
+    q: "¿Puedo programar ingresos o abonos automáticos?",
+    a: "Sí. En la pestaña Fijos, al crear uno elige el tipo \"Abono (ingreso)\" en vez de \"Cargo (gasto)\". Así puedes programar depósitos recurrentes a cualquier cuenta (por ejemplo, tu ahorro mensual), con la frecuencia que quieras. Los cargos y los abonos se muestran con totales al mes por separado.",
+  },
+  {
+    q: "¿Cómo filtro mis movimientos?",
+    a: "En la pestaña Movimientos tienes los chips de periodo (Hoy, Semana, Mes, Año) y el botón \"Filtros\", donde puedes filtrar por cuenta o tarjeta y por categoría. Puedes combinar varios filtros a la vez; los activos se muestran como etiquetas que quitas con un toque.",
   },
   {
     q: "¿Qué es la \"tarjeta digital\"?",

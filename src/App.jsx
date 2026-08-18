@@ -297,9 +297,13 @@ export default function FinanzasApp() {
           </div>
         )}
 
-        {/* Recorrido de bienvenida: primera vez, o cuando se pide desde Ajustes */}
+        {/* Recorrido de bienvenida: primera vez, o cuando se pide desde Ajustes.
+            Va cambiando la pestaña de fondo para mostrar cada sección y sus botones. */}
         {(showTour || !data.tourSeen) && (
-          <Tour onClose={() => { setShowTour(false); if (!data.tourSeen) update({ tourSeen: true }); }} />
+          <Tour
+            onStep={(t) => t && setTab(t)}
+            onClose={() => { setShowTour(false); if (!data.tourSeen) update({ tourSeen: true }); }}
+          />
         )}
       </div>
     </ThemeContext.Provider>

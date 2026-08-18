@@ -19,11 +19,18 @@ export default function GraficaCategorias({ counted, categories }) {
     counted
       .filter((m) => m.type === tipo && !m.adjust && !m.transfer && m.date.startsWith(ym))
       .forEach((m) => {
-        const k = m.categoryId || "sin";
+        // Los movimientos de interés no llevan categoría: los rendimientos de las
+        // cajas de ahorro (ingreso) se agrupan como "Inversiones" y los intereses
+        // de las deudas (gasto) como "Intereses".
+        const k = m.interest ? (m.type === "ingreso" ? "inversiones" : "intereses") : m.categoryId || "sin";
         sums[k] = (sums[k] || 0) + movTotal(m);
       });
     return Object.entries(sums)
-      .map(([id, amount]) => ({ id, name: catById[id]?.name || "Sin categoría", amount }))
+      .map(([id, amount]) => ({
+        id,
+        name: id === "inversiones" ? "Inversiones" : id === "intereses" ? "Intereses" : catById[id]?.name || "Sin categoría",
+        amount,
+      }))
       .sort((a, b) => b.amount - a.amount);
   }, [counted, tipo, ym]); // eslint-disable-line react-hooks/exhaustive-deps
 
