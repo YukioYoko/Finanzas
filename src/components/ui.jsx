@@ -96,7 +96,14 @@ export function Select({ children, ...props }) {
   );
 }
 
-export function Btn({ children, kind = "primary", ...props }) {
+// Tamaños de botón unificados (usa `size` en vez de padding inline suelto)
+const BTN_SIZES = {
+  sm: { padding: "5px 10px", fontSize: 13 },
+  md: { padding: "8px 12px", fontSize: 14 },
+  lg: { padding: "10px 16px", fontSize: 15 },
+};
+
+export function Btn({ children, kind = "primary", size = "md", ...props }) {
   const C = useTheme();
   const styles = {
     primary: { background: C.accent, color: C.accentText, border: "1px solid transparent", fontWeight: 600 },
@@ -106,8 +113,29 @@ export function Btn({ children, kind = "primary", ...props }) {
   return (
     <button
       {...props}
-      className={"rounded-lg px-3 py-2 text-sm transition-opacity hover:opacity-85 " + (props.className || "")}
-      style={{ ...styles[kind], ...(props.style || {}) }}
+      className={"rounded-lg transition-opacity hover:opacity-85 " + (props.className || "")}
+      style={{ ...BTN_SIZES[size] || BTN_SIZES.md, ...styles[kind], ...(props.style || {}) }}
+    >
+      {children}
+    </button>
+  );
+}
+
+// Píldora de selección/toggle (chips de periodo, filtros, alternadores). Un solo
+// estilo para que todos los "chips" clicables se vean igual en toda la app.
+export function Pill({ children, on = false, ...props }) {
+  const C = useTheme();
+  return (
+    <button
+      type="button"
+      {...props}
+      className={"rounded-full px-3 py-1 text-xs transition-opacity hover:opacity-85 " + (props.className || "")}
+      style={{
+        ...(on
+          ? { background: C.accentSoft, color: C.accent, border: `1px solid ${C.border}`, fontWeight: 600 }
+          : { background: "transparent", color: C.muted, border: `1px solid ${C.borderSoft}` }),
+        ...(props.style || {}),
+      }}
     >
       {children}
     </button>

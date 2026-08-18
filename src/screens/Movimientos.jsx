@@ -3,7 +3,7 @@ import { useTheme } from "../theme";
 import { FREQS, MESES_OPCIONES } from "../constants";
 import { money, uid, todayISO, isoOf } from "../utils/format";
 import { cardLabel, movTotal, cardTypeLabel, balanceOfCard, cashOverdraft } from "../lib/finance";
-import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty } from "../components/ui";
+import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty, Pill } from "../components/ui";
 import { IconSplit } from "../components/icons";
 
 const PERIODOS = [
@@ -98,7 +98,7 @@ function InboxItem({ item, data, onConfirm, onDiscard }) {
           <Chip color={C.amber} bg={C.amberSoft}>Detectado en notificación</Chip>
           <Amount value={parseFloat(amount) || 0} sign={isTransfer ? "" : type === "gasto" ? "-" : "+"} size="text-sm" />
         </div>
-        <Btn kind="danger" onClick={() => onDiscard(item)} style={{ padding: "4px 8px" }}>Descartar</Btn>
+        <Btn kind="danger" onClick={() => onDiscard(item)} size="sm">Descartar</Btn>
       </div>
       <p className="text-xs mb-3" style={{ color: C.faint }}>{item.text}</p>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -224,7 +224,7 @@ function InboxTransferItem({ item, data, onConfirm, onDiscard }) {
           <Chip color={C.blue}>Transferencia detectada</Chip>
           <Amount value={parseFloat(amount) || 0} sign="" size="text-sm" />
         </div>
-        <Btn kind="danger" onClick={() => onDiscard(item)} style={{ padding: "4px 8px" }}>Descartar</Btn>
+        <Btn kind="danger" onClick={() => onDiscard(item)} size="sm">Descartar</Btn>
       </div>
       {item.text && <p className="text-xs mb-3" style={{ color: C.faint }}>{item.text}</p>}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -323,7 +323,7 @@ function MovEditor({ mov, data, onSave, onCancel }) {
     <Card style={{ borderColor: C.accent }}>
       <div className="flex items-center justify-between mb-3">
         <Chip color={C.accent} bg={C.accentSoft}>{isAdjust ? "Editando ajuste de saldo" : "Editando movimiento"}</Chip>
-        <Btn kind="ghost" onClick={onCancel} style={{ padding: "4px 10px" }}>Cancelar</Btn>
+        <Btn kind="ghost" onClick={onCancel} size="sm">Cancelar</Btn>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Field label="Título">
@@ -449,7 +449,7 @@ function TransferEditor({ mov, data, onSave, onCancel }) {
     <Card style={{ borderColor: C.blue }}>
       <div className="flex items-center justify-between mb-3">
         <Chip color={C.blue}>Editando transferencia</Chip>
-        <Btn kind="ghost" onClick={onCancel} style={{ padding: "4px 10px" }}>Cancelar</Btn>
+        <Btn kind="ghost" onClick={onCancel} size="sm">Cancelar</Btn>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Field label="Cuenta origen">
@@ -695,11 +695,6 @@ export default function Movimientos({ data, update }) {
   const visibles = filterByPeriodo(byCard, periodo);
   const activeFilters = catFilter.length + cardFilter.length;
 
-  // Estilo de "chip" (píldora) según esté activo o no; se reutiliza en periodo y filtros
-  const chipStyle = (on) => (on
-    ? { background: C.accentSoft, color: C.accent, border: `1px solid ${C.border}`, fontWeight: 600 }
-    : { color: C.muted, border: `1px solid ${C.borderSoft}` });
-
   // Agrupa las patas de un pago dividido (mismo splitId) en una sola fila de la lista
   const visibleRows = [];
   const seenSplit = new Set();
@@ -876,7 +871,7 @@ export default function Movimientos({ data, update }) {
                           </Field>
                         </div>
                         {splitRows.length > 1 && (
-                          <Btn kind="danger" onClick={() => removeSplitRow(i)} style={{ padding: "8px 10px" }} title="Quitar este medio">✕</Btn>
+                          <Btn kind="danger" onClick={() => removeSplitRow(i)} title="Quitar este medio">✕</Btn>
                         )}
                       </div>
                     </div>
@@ -884,7 +879,7 @@ export default function Movimientos({ data, update }) {
                 })}
               </div>
               <div className="mt-2">
-                <Btn kind="ghost" onClick={addSplitRow} style={{ padding: "4px 10px" }}>+ Agregar medio</Btn>
+                <Btn kind="ghost" onClick={addSplitRow} size="sm">+ Agregar medio</Btn>
               </div>
               <p className="text-xs mt-2" style={{ color: C.faint }}>
                 Cada medio se registra como un gasto en su cuenta; juntos forman una sola compra (la suma es el total). Se agrupan en un solo movimiento en la lista.
@@ -947,17 +942,10 @@ export default function Movimientos({ data, update }) {
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex gap-1 flex-wrap">
               {PERIODOS.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => setPeriodo(p.id)}
-                  className="rounded-full px-3 py-1 text-xs transition-opacity hover:opacity-85"
-                  style={chipStyle(periodo === p.id)}
-                >
-                  {p.label}
-                </button>
+                <Pill key={p.id} on={periodo === p.id} onClick={() => setPeriodo(p.id)}>{p.label}</Pill>
               ))}
             </div>
-            <Btn kind={filtersOpen || activeFilters ? "primary" : "ghost"} onClick={() => setFiltersOpen((v) => !v)} style={{ padding: "4px 12px" }}>
+            <Btn kind={filtersOpen || activeFilters ? "primary" : "ghost"} size="sm" onClick={() => setFiltersOpen((v) => !v)}>
               Filtros{activeFilters ? ` · ${activeFilters}` : ""}
             </Btn>
           </div>
@@ -1014,19 +1002,15 @@ export default function Movimientos({ data, update }) {
                         {a.name}{a.bank ? ` · ${a.bank}` : ""}
                       </button>
                       <div className="flex flex-wrap gap-2">
-                        {accCardList.map((c) => {
-                          const on = cardFilter.includes(c.id);
-                          return (
-                            <button
-                              key={c.id}
-                              onClick={() => setCardFilter((prev) => (on ? prev.filter((x) => x !== c.id) : [...prev, c.id]))}
-                              className="rounded-full px-3 py-1 text-xs transition-opacity hover:opacity-85"
-                              style={chipStyle(on)}
-                            >
-                              {c.name}{c.last4 ? ` ····${c.last4}` : ""}
-                            </button>
-                          );
-                        })}
+                        {accCardList.map((c) => (
+                          <Pill
+                            key={c.id}
+                            on={cardFilter.includes(c.id)}
+                            onClick={() => setCardFilter((prev) => (prev.includes(c.id) ? prev.filter((x) => x !== c.id) : [...prev, c.id]))}
+                          >
+                            {c.name}{c.last4 ? ` ····${c.last4}` : ""}
+                          </Pill>
+                        ))}
                       </div>
                     </div>
                   );
@@ -1040,19 +1024,15 @@ export default function Movimientos({ data, update }) {
                 )}
               </div>
               <div className="flex flex-wrap gap-2">
-                {categories.map((c) => {
-                  const on = catFilter.includes(c.id);
-                  return (
-                    <button
-                      key={c.id}
-                      onClick={() => setCatFilter((prev) => (on ? prev.filter((x) => x !== c.id) : [...prev, c.id]))}
-                      className="rounded-full px-3 py-1 text-xs transition-opacity hover:opacity-85"
-                      style={chipStyle(on)}
-                    >
-                      {c.name}
-                    </button>
-                  );
-                })}
+                {categories.map((c) => (
+                  <Pill
+                    key={c.id}
+                    on={catFilter.includes(c.id)}
+                    onClick={() => setCatFilter((prev) => (prev.includes(c.id) ? prev.filter((x) => x !== c.id) : [...prev, c.id]))}
+                  >
+                    {c.name}
+                  </Pill>
+                ))}
               </div>
 
               {activeFilters > 0 && (
@@ -1114,7 +1094,7 @@ export default function Movimientos({ data, update }) {
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <Amount value={total} sign="-" size="text-sm" />
-                    <Btn kind="danger" onClick={() => del(rep.id)} style={{ padding: "4px 8px" }}>✕</Btn>
+                    <Btn kind="danger" onClick={() => del(rep.id)} size="sm">✕</Btn>
                   </div>
                 </Card>
               );
@@ -1160,9 +1140,9 @@ export default function Movimientos({ data, update }) {
                     )}
                   </div>
                   {editable && (
-                    <Btn kind="ghost" onClick={() => setEditId(m.id)} style={{ padding: "4px 8px" }}>✎</Btn>
+                    <Btn kind="ghost" onClick={() => setEditId(m.id)} size="sm">✎</Btn>
                   )}
-                  <Btn kind="danger" onClick={() => del(m.id)} style={{ padding: "4px 8px" }}>✕</Btn>
+                  <Btn kind="danger" onClick={() => del(m.id)} size="sm">✕</Btn>
                 </div>
               </Card>
             );

@@ -387,9 +387,9 @@ export default function Resumen({ data, update }) {
                   </div>
                   <div className="flex gap-2 mt-2 justify-end flex-wrap">
                     {liquidada ? (
-                      <Btn kind="danger" onClick={() => deleteDebt(c)} style={{ padding: "6px 14px" }}>Eliminar deuda</Btn>
+                      <Btn kind="danger" onClick={() => deleteDebt(c)}>Eliminar deuda</Btn>
                     ) : (
-                      <Btn kind={payFor === c.id ? "ghost" : "primary"} onClick={() => openPay(c, null, bal)} style={{ padding: "6px 14px" }}>
+                      <Btn kind={payFor === c.id ? "ghost" : "primary"} onClick={() => openPay(c, null, bal)}>
                         {payFor === c.id ? "Cancelar" : "Pagar deuda"}
                       </Btn>
                     )}
@@ -475,7 +475,7 @@ export default function Resumen({ data, update }) {
                           {money(statement.toPay)}
                         </span>
                       </div>
-                      <Btn kind={statement.toPay > 0 ? "primary" : "ghost"} onClick={() => openPay(card, statement, debt)} style={{ padding: "6px 14px" }}>
+                      <Btn kind={statement.toPay > 0 ? "primary" : "ghost"} onClick={() => openPay(card, statement, debt)}>
                         {payFor === card.id ? "Cancelar" : "Pagar"}
                       </Btn>
                     </div>
@@ -485,7 +485,7 @@ export default function Resumen({ data, update }) {
                     <p className="text-xs" style={{ color: C.faint }}>
                       Sin día de corte no se puede calcular el pago del mes; el pago se propone por la deuda total.
                     </p>
-                    <Btn kind="ghost" onClick={() => openPay(card, statement, debt)} style={{ padding: "6px 14px" }}>
+                    <Btn kind="ghost" onClick={() => openPay(card, statement, debt)}>
                       {payFor === card.id ? "Cancelar" : "Pagar"}
                     </Btn>
                   </div>

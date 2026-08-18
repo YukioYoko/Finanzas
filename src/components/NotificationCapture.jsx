@@ -70,7 +70,7 @@ export default function NotificationCapture({ data, update }) {
               <p className="text-xs min-w-0 flex-1" style={{ color: C.faint }}>
                 Concede el acceso a notificaciones en los ajustes del sistema para que la app pueda leer los cargos.
               </p>
-              <Btn kind="ghost" onClick={() => NotificationInbox.openSettings().catch(() => {})} style={{ padding: "6px 12px" }}>
+              <Btn kind="ghost" onClick={() => NotificationInbox.openSettings().catch(() => {})}>
                 Permitir acceso
               </Btn>
             </div>
@@ -109,7 +109,7 @@ export default function NotificationCapture({ data, update }) {
                   </ul>
                 )}
 
-                <Btn kind="ghost" onClick={openPicker} style={{ padding: "6px 12px" }}>
+                <Btn kind="ghost" onClick={openPicker}>
                   {pickerOpen ? "Cerrar lista" : "+ Elegir de mis apps instaladas"}
                 </Btn>
 

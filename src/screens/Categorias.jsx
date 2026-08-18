@@ -68,7 +68,7 @@ export default function Categorias({ data, update }) {
                       <Select value={c.freq} onChange={(e) => setCatFreq(c.id, e.target.value)} style={{ width: "auto", padding: "4px 8px", fontSize: 12 }}>
                         {FREQS.map((fr) => <option key={fr.id} value={fr.id}>{fr.label}</option>)}
                       </Select>
-                      <Btn kind="danger" onClick={() => del(c.id)} style={{ padding: "4px 8px" }}>✕</Btn>
+                      <Btn kind="danger" onClick={() => del(c.id)} size="sm">✕</Btn>
                     </div>
                   </Card>
                 ))}

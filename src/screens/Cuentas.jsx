@@ -433,14 +433,14 @@ export default function Cuentas({ data, update }) {
                         </div>
                       </div>
                       <div className="flex gap-2 mt-2 justify-end flex-wrap">
-                        <Btn kind="ghost" onClick={() => toggleCardCount(card.id)} style={{ padding: "4px 10px" }} title={card.excluded ? "Volver a contabilizar" : "Excluir de la contabilización"}>
+                        <Btn kind="ghost" onClick={() => toggleCardCount(card.id)} size="sm" title={card.excluded ? "Volver a contabilizar" : "Excluir de la contabilización"}>
                           {card.excluded ? "Contar" : "No contar"}
                         </Btn>
-                        <Btn kind="ghost" onClick={() => openBalanceEditor(card)} style={{ padding: "4px 10px" }}>
+                        <Btn kind="ghost" onClick={() => openBalanceEditor(card)} size="sm">
                           {editBalFor === card.id ? "Cancelar" : "✎ Editar"}
                         </Btn>
                         {!isCashCard && !isDebtCard && (
-                          <Btn kind="danger" onClick={() => deleteCard(card.id)} style={{ padding: "4px 10px" }}>✕</Btn>
+                          <Btn kind="danger" onClick={() => deleteCard(card.id)} size="sm">✕</Btn>
                         )}
                       </div>
 
