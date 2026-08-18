@@ -59,8 +59,10 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- No usamos alarmas exactas (los recordatorios a las 9:00 admiten holgura);
-         quitamos el permiso que Play restringe, incluido el que inyecta el plugin. -->
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" tools:node="remove" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" tools:node="remove" />
+    <!-- No declaramos SCHEDULE_EXACT_ALARM ni USE_EXACT_ALARM: el plugin de
+         notificaciones no las requiere (cae en alarma inexacta) y Play las restringe.
+         OJO: NO poner aquí esos permisos con tools:node="remove". Como ninguna
+         dependencia los declara, no hay nada que remover y el merge de manifiestos
+         los dejaría como declaraciones reales, haciendo que la app aparezca en
+         "Alarmas y recordatorios". Simplemente no se mencionan. -->
 </manifest>
