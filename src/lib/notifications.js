@@ -45,7 +45,9 @@ export async function scheduleCardReminders(cards) {
           id: id++,
           title: "Corte de tarjeta",
           body: `Hoy es la fecha de corte de tu tarjeta ${label}.`,
-          schedule: { at, allowWhileIdle: true },
+          // Sin allowWhileIdle: usa alarma inexacta (no requiere permiso de alarmas
+          // exactas, que Play restringe). Un aviso de las 9:00 admite holgura.
+          schedule: { at },
         });
       }
       for (const at of payDay ? nextDates(payDay, 2) : []) {
@@ -53,7 +55,7 @@ export async function scheduleCardReminders(cards) {
           id: id++,
           title: "Pago de tarjeta",
           body: `Hoy es la fecha límite de pago de tu tarjeta ${label}. Abre la app para ver cuánto pagar.`,
-          schedule: { at, allowWhileIdle: true },
+          schedule: { at },
         });
       }
     }

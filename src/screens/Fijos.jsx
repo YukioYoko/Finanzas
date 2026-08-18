@@ -69,7 +69,7 @@ function FijoForm({ data, initial, onSave, onCancel }) {
       {initial && (
         <div className="flex items-center justify-between mb-3">
           <Chip color={C.accent} bg={C.accentSoft}>Editando cargo fijo</Chip>
-          <Btn kind="ghost" onClick={onCancel} style={{ padding: "4px 10px" }}>Cancelar</Btn>
+          <Btn kind="ghost" size="sm" onClick={onCancel}>Cancelar</Btn>
         </div>
       )}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -242,8 +242,8 @@ export default function Fijos({ data, update }) {
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <Amount value={Number(r.amount) || 0} sign={isAbono ? "+" : "-"} size="text-sm" />
-                  <Btn kind="ghost" onClick={() => setEditId(r.id)} style={{ padding: "4px 8px" }}>✎</Btn>
-                  <Btn kind="danger" onClick={() => del(r)} style={{ padding: "4px 8px" }}>✕</Btn>
+                  <Btn kind="ghost" onClick={() => setEditId(r.id)} size="sm">✎</Btn>
+                  <Btn kind="danger" onClick={() => del(r)} size="sm">✕</Btn>
                 </div>
               </Card>
             );

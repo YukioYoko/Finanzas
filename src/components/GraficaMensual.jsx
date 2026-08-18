@@ -78,7 +78,7 @@ export default function GraficaMensual({ counted }) {
           <span className="flex items-center gap-1.5"><Swatch color={C.chartGasto} /> Gastos</span>
           <span className="flex items-center gap-1.5"><Swatch color={C.chartIngreso} /> Ingresos</span>
         </div>
-        <Btn kind="ghost" style={{ padding: "4px 10px" }} onClick={() => setVista((v) => (v === "grafica" ? "tabla" : "grafica"))}>
+        <Btn kind="ghost" size="sm" onClick={() => setVista((v) => (v === "grafica" ? "tabla" : "grafica"))}>
           {vista === "grafica" ? "Ver tabla" : "Ver gráfica"}
         </Btn>
       </div>

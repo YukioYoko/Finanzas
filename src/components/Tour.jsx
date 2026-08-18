@@ -64,16 +64,16 @@ export default function Tour({ onClose }) {
         </div>
 
         <div className="flex items-center justify-between gap-2">
-          <Btn kind="ghost" onClick={onClose} style={{ padding: "6px 12px" }}>
+          <Btn kind="ghost" onClick={onClose}>
             Saltar
           </Btn>
           <div className="flex gap-2">
             {step > 0 && (
-              <Btn kind="ghost" onClick={() => setStep((s) => s - 1)} style={{ padding: "6px 12px" }}>
+              <Btn kind="ghost" onClick={() => setStep((s) => s - 1)}>
                 Atrás
               </Btn>
             )}
-            <Btn onClick={() => (isLast ? onClose() : setStep((s) => s + 1))} style={{ padding: "6px 16px" }}>
+            <Btn size="lg" onClick={() => (isLast ? onClose() : setStep((s) => s + 1))}>
               {isLast ? "¡Empezar!" : "Siguiente"}
             </Btn>
           </div>

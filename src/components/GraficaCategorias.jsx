@@ -3,7 +3,7 @@ import { useTheme } from "../theme";
 import { MONTH_NAMES } from "../constants";
 import { money } from "../utils/format";
 import { movTotal } from "../lib/finance";
-import { Card, Empty } from "./ui";
+import { Card, Empty, Pill } from "./ui";
 
 // Desglose de gastos (o ingresos) del mes por categoría, en barras horizontales.
 // `counted` son los movimientos ya filtrados a tarjetas contabilizadas.
@@ -36,16 +36,7 @@ export default function GraficaCategorias({ counted, categories }) {
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <div className="flex gap-1">
           {[["gasto", "Gastos"], ["ingreso", "Ingresos"]].map(([id, label]) => (
-            <button
-              key={id}
-              onClick={() => setTipo(id)}
-              className="rounded-full px-3 py-1 text-xs transition-opacity hover:opacity-85"
-              style={tipo === id
-                ? { background: C.accentSoft, color: C.accent, border: `1px solid ${C.border}`, fontWeight: 600 }
-                : { color: C.muted, border: `1px solid ${C.borderSoft}` }}
-            >
-              {label}
-            </button>
+            <Pill key={id} on={tipo === id} onClick={() => setTipo(id)}>{label}</Pill>
           ))}
         </div>
         <span className="text-xs" style={{ color: C.faint }}>{MONTH_NAMES[now.getMonth()]} · {money(total)}</span>
