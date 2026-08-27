@@ -42,6 +42,7 @@ Pushing to `main` triggers `.github/workflows/build-apk.yml`. If the `ANDROID_KE
 - **`src/components/ui.jsx`** — UI primitives: `Field`, `TextInput`, `Select`, `Btn`, `Chip`, `Amount`, `Card`, `SectionTitle`, `Empty`. Reuse these instead of writing raw `<input>`/`<button>` markup.
 - **`src/components/GraficaMensual.jsx`** — the 6-month income/expense grouped-column SVG chart (with table view).
 - **`src/components/GraficaCategorias.jsx`** — current-month breakdown of expenses/income by category as horizontal bars (Gastos/Ingresos toggle).
+- **`src/components/ResumenAnual.jsx`** — modal (opened from a button under `GraficaMensual` in Resumen) showing per-category amounts for a whole year, with a year switcher for history, a Gastos/Ingresos toggle, and a month selector; picking a month overlays that month's amount (strong tone) over the category's annual total (light tone) to compare.
 - **`src/components/Tour.jsx`** — the welcome tour overlay, shown on first launch (`data.tourSeen` flag) and replayable from Ajustes.
 - **`src/screens/*.jsx`** — one file per tab (`Resumen`, `Cuentas`, `Movimientos`, `Fijos`, `Categorias`), each taking `{ data, update }` and calling `update(patch)` to merge a partial state patch into `data`. `Movimientos.jsx` also holds `InboxItem` and `MovEditor`; `Fijos.jsx` holds `FijoForm`. `Ajustes.jsx` (opened via the ⚙ header button, not a tab) holds preferences, FAQ, support contact (`SUPPORT_EMAIL` in constants.js), and terms & conditions.
 

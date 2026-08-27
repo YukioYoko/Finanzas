@@ -6,6 +6,7 @@ import { cardLabel, movTotal, balanceOfCard, creditStatement, clampDay, isDebtTy
 import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty, InfoHint } from "../components/ui";
 import GraficaMensual from "../components/GraficaMensual";
 import GraficaCategorias from "../components/GraficaCategorias";
+import ResumenAnual from "../components/ResumenAnual";
 
 export default function Resumen({ data, update }) {
   const C = useTheme();
@@ -15,6 +16,7 @@ export default function Resumen({ data, update }) {
   const [payAmt, setPayAmt] = useState("");
   const [payDate, setPayDate] = useState(todayISO());
   const [payError, setPayError] = useState("");
+  const [showAnual, setShowAnual] = useState(false);
   const ym = now.toISOString().slice(0, 7);
   const year = String(now.getFullYear());
 
@@ -278,7 +280,14 @@ export default function Resumen({ data, update }) {
       <div>
         <SectionTitle>Gastos e ingresos por mes</SectionTitle>
         <GraficaMensual counted={counted} />
+        <div className="mt-3">
+          <Btn kind="ghost" className="w-full" onClick={() => setShowAnual(true)}>Ver resumen anual</Btn>
+        </div>
       </div>
+
+      {showAnual && (
+        <ResumenAnual counted={counted} categories={categories} onClose={() => setShowAnual(false)} />
+      )}
 
       {/* Desglose por categoría */}
       <div>
