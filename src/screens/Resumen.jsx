@@ -177,7 +177,14 @@ export default function Resumen({ data, update }) {
   const savingsByCard = savingsCards.map((c) => {
     const balance = balanceOfCard(c, movements);
     const rate = Number(c.rate) || 0;
-    return { card: c, balance, rate, monthlyYield: (balance * rate) / 100 / 12 };
+    // Aproximados: el interés se compone a diario con base comercial de 360 días
+    return {
+      card: c,
+      balance,
+      rate,
+      dailyYield: (balance * rate) / 100 / 360,
+      monthlyYield: (balance * rate) / 100 / 12,
+    };
   });
   const totalSavings = savingsByCard.reduce((s, d) => s + d.balance, 0);
   // Solo rendimientos de ahorro (ingresos); los intereses de deudas son gastos
@@ -304,7 +311,7 @@ export default function Resumen({ data, update }) {
             Cajas de ahorro
           </SectionTitle>
           <div className="space-y-2">
-            {savingsByCard.map(({ card, balance, rate, monthlyYield }) => (
+            {savingsByCard.map(({ card, balance, rate, dailyYield, monthlyYield }) => (
               <Card key={card.id} className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
@@ -313,7 +320,7 @@ export default function Resumen({ data, update }) {
                   </div>
                   {rate > 0 && balance > 0 && (
                     <p className="text-xs mt-1" style={{ color: C.faint }}>
-                      Genera ≈ {money(monthlyYield)} al mes · se abona automáticamente cada día
+                      Genera ≈ {money(dailyYield)} al día (~{money(monthlyYield)} al mes) · se abona automáticamente cada día
                     </p>
                   )}
                 </div>

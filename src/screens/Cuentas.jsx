@@ -20,6 +20,16 @@ const HINT_LIMITE = (
     Es el límite total de tu tarjeta (la "línea de crédito"). Con este dato, en la pantalla principal verás una barra con el porcentaje que ya usaste y un aviso cuando te acerques al tope. Déjalo vacío si no lo quieres registrar.
   </InfoHint>
 );
+const HINT_RENDIMIENTO = (
+  <InfoHint title="¿Cómo se calcula el rendimiento?">
+    Pones la tasa anual (%) que te da tu banco. La app la reparte en interés compuesto diario con base de 360 días: cada día abona sobre tu saldo actual la parte proporcional (tasa ÷ 360), y ese rendimiento también empieza a generar al día siguiente. Por eso el rendimiento real del año queda un poco por encima de la tasa que pones. Se abona solo cada día que abres la app.
+  </InfoHint>
+);
+const HINT_TASA_DEUDA = (
+  <InfoHint title="¿Cómo se calcula el interés?">
+    Pones la tasa que te cobran. Si es mensual se anualiza (×12) y luego se aplica como interés compuesto diario con base de 360 días: cada día la deuda crece la parte proporcional (tasa anual ÷ 360) sobre el saldo actual, y ese interés también genera al día siguiente. Se acumula solo cada día que abres la app.
+  </InfoHint>
+);
 
 export default function Cuentas({ data, update }) {
   const C = useTheme();
@@ -250,7 +260,7 @@ export default function Cuentas({ data, update }) {
                   </Select>
                 </Field>
                 {debtRateType !== "none" && (
-                  <Field label={`Tasa ${debtRateType} (%)`}>
+                  <Field label={`Tasa ${debtRateType} (%)`} hint={HINT_TASA_DEUDA}>
                     <TextInput type="number" min="0" step="0.01" value={debtRate} onChange={(e) => setDebtRate(e.target.value)} placeholder="Ej. 3" />
                   </Field>
                 )}
@@ -343,7 +353,7 @@ export default function Cuentas({ data, update }) {
                     </Select>
                   </Field>
                   {cardType === "ahorro" ? (
-                    <Field label="Rendimiento anual (%)">
+                    <Field label="Rendimiento anual (%)" hint={HINT_RENDIMIENTO}>
                       <TextInput type="number" min="0" step="0.01" value={cardRate} onChange={(e) => setCardRate(e.target.value)} placeholder="Ej. 10" />
                     </Field>
                   ) : (
@@ -451,13 +461,13 @@ export default function Cuentas({ data, update }) {
                               <TextInput type="number" step="0.01" value={newBal} onChange={(e) => setNewBal(e.target.value)} />
                             </Field>
                             {isSavings && (
-                              <Field label="Rendimiento anual (%)">
+                              <Field label="Rendimiento anual (%)" hint={HINT_RENDIMIENTO}>
                                 <TextInput type="number" min="0" step="0.01" value={newRate} onChange={(e) => setNewRate(e.target.value)} />
                               </Field>
                             )}
                             {isDebtCard && (
                               <>
-                                <Field label="Tasa de interés (%)">
+                                <Field label="Tasa de interés (%)" hint={HINT_TASA_DEUDA}>
                                   <TextInput type="number" min="0" step="0.01" value={newRate} onChange={(e) => setNewRate(e.target.value)} placeholder="0 = sin interés" />
                                 </Field>
                                 <Field label="Periodo de la tasa">
