@@ -120,11 +120,14 @@ export default function GraficaMensual({ counted }) {
                   </text>
                 </g>
               ))}
+              {/* Resalte del mes seleccionado (banda de fondo) */}
+              <rect x={padL + sel * band} y={padT} width={band} height={plotH} rx="6" fill={C.surface2} />
               {/* Columnas: extremo superior redondeado, base cuadrada vía clip */}
               <g clipPath="url(#gm-plot)">
                 {meses.map((m, i) => {
                   const x0 = padL + i * band + (band - (barW * 2 + 2)) / 2;
-                  const dim = sel === i ? 0.8 : 1;
+                  // El mes seleccionado a plena intensidad; los demás, atenuados
+                  const dim = sel === i ? 1 : 0.5;
                   return (
                     <g key={m.key} opacity={dim}>
                       {m.gastos > 0 && <rect x={x0} y={yOf(m.gastos)} width={barW} height={baseY - yOf(m.gastos) + 4} rx="4" fill={C.chartGasto} />}
@@ -136,7 +139,14 @@ export default function GraficaMensual({ counted }) {
               {/* Etiquetas de mes y zonas de toque (más grandes que las marcas) */}
               {meses.map((m, i) => (
                 <g key={m.key}>
-                  <text x={padL + i * band + band / 2} y={svgH - 8} textAnchor="middle" fontSize="10" fill={sel === i ? C.text : C.faint}>
+                  <text
+                    x={padL + i * band + band / 2}
+                    y={svgH - 8}
+                    textAnchor="middle"
+                    fontSize={sel === i ? 12 : 10}
+                    fontWeight={sel === i ? 700 : 400}
+                    fill={sel === i ? C.accent : C.faint}
+                  >
                     {m.label}
                   </text>
                   <rect
@@ -149,17 +159,20 @@ export default function GraficaMensual({ counted }) {
               ))}
             </svg>
           )}
-          {/* Lectura del mes seleccionado (tooltip fijo: funciona también en táctil) */}
-          <div className="flex items-center gap-4 mt-2 text-xs flex-wrap" style={{ color: C.muted }}>
-            <span className="uppercase tracking-wider">{MONTH_NAMES[parseInt(selMes.key.slice(5), 10) - 1]} {selMes.year}</span>
-            <span className="flex items-center gap-1.5">
-              <Swatch color={C.chartGasto} />
-              <span className="font-mono" style={{ color: C.text, fontVariantNumeric: "tabular-nums" }}>{money(selMes.gastos)}</span> gastos
-            </span>
-            <span className="flex items-center gap-1.5">
-              <Swatch color={C.chartIngreso} />
-              <span className="font-mono" style={{ color: C.text, fontVariantNumeric: "tabular-nums" }}>{money(selMes.ingresos)}</span> ingresos
-            </span>
+          {/* Lectura del mes seleccionado (funciona también en táctil): mes, luego
+              gastos y debajo ingresos, cada uno en su renglón */}
+          <div className="mt-3 rounded-lg p-3" style={{ background: C.surface2, border: `1px solid ${C.borderSoft}` }}>
+            <p className="text-xs uppercase tracking-wider mb-2" style={{ color: C.accent }}>
+              {MONTH_NAMES[parseInt(selMes.key.slice(5), 10) - 1]} {selMes.year}
+            </p>
+            <div className="flex items-center justify-between text-sm mb-1">
+              <span className="flex items-center gap-2" style={{ color: C.muted }}><Swatch color={C.chartGasto} /> Gastos</span>
+              <span className="font-mono" style={{ color: C.text, fontVariantNumeric: "tabular-nums" }}>{money(selMes.gastos)}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="flex items-center gap-2" style={{ color: C.muted }}><Swatch color={C.chartIngreso} /> Ingresos</span>
+              <span className="font-mono" style={{ color: C.text, fontVariantNumeric: "tabular-nums" }}>{money(selMes.ingresos)}</span>
+            </div>
           </div>
         </div>
       )}

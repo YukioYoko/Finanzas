@@ -84,18 +84,17 @@ export default function ResumenAnual({ counted, categories, onClose }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 flex flex-col"
+      style={{ background: C.surface }}
       role="dialog"
       aria-modal="true"
       aria-label="Resumen anual"
     >
-      <div className="absolute inset-0" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose} aria-hidden="true" />
-      <div
-        className="relative w-full max-w-lg rounded-2xl flex flex-col"
-        style={{ background: C.surface, border: `1px solid ${C.border}`, height: "92vh" }}
-      >
-        {/* Encabezado */}
-        <div className="flex items-center justify-between gap-3 p-4" style={{ borderBottom: `1px solid ${C.borderSoft}` }}>
+        {/* Encabezado (separado de la barra de estado con la safe-area) */}
+        <div
+          className="flex items-center justify-between gap-3 px-4 pb-4"
+          style={{ borderBottom: `1px solid ${C.borderSoft}`, paddingTop: "calc(env(safe-area-inset-top, 0px) + 16px)" }}
+        >
           <h2 className="text-sm uppercase tracking-widest" style={{ color: C.accent }}>Resumen anual</h2>
           <button
             onClick={onClose}
@@ -146,7 +145,10 @@ export default function ResumenAnual({ counted, categories, onClose }) {
         </div>
 
         {/* Lista por categoría (ocupa el resto con scroll interno) */}
-        <div className="p-4 overflow-y-auto flex-1 min-h-0">
+        <div
+          className="px-4 pt-4 overflow-y-auto flex-1 min-h-0"
+          style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)" }}
+        >
           {rows.length === 0 ? (
             <Empty>Sin {tipo === "gasto" ? "gastos" : "ingresos"} en {year}.</Empty>
           ) : (
@@ -180,7 +182,6 @@ export default function ResumenAnual({ counted, categories, onClose }) {
             </ul>
           )}
         </div>
-      </div>
     </div>
   );
 }
