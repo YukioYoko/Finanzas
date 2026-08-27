@@ -1,11 +1,11 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useTheme } from "../theme";
 import { MONTH_NAMES } from "../constants";
 import { money } from "../utils/format";
 import { movTotal } from "../lib/finance";
-import { Pill, Empty } from "./ui";
+import { Pill, Empty, Field, Select } from "./ui";
 
-const MES_ABBR = MONTH_NAMES.map((n) => n.slice(0, 3));
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 // Resumen anual por categoría, con histórico por año y comparación mes vs. total del año.
 // `counted` son los movimientos ya filtrados a tarjetas contabilizadas.
@@ -15,6 +15,13 @@ export default function ResumenAnual({ counted, categories, onClose }) {
   const [year, setYear] = useState(nowYear);
   const [tipo, setTipo] = useState("gasto");
   const [mes, setMes] = useState(null); // null = todo el año; 0–11 = mes
+
+  // Bloquea el scroll de la pantalla de fondo mientras el modal está abierto
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
 
   const catById = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c])), [categories]);
 
@@ -32,8 +39,21 @@ export default function ResumenAnual({ counted, categories, onClose }) {
     set.add(nowYear);
     return [...set].sort((a, b) => a - b);
   }, [counted, nowYear]);
-  const minYear = years[0];
-  const maxYear = years[years.length - 1];
+
+  // Meses (0–11) que tienen movimientos del tipo y año elegidos, para no listar vacíos
+  const monthsWithData = useMemo(() => {
+    const set = new Set();
+    const yPrefix = `${year}-`;
+    counted
+      .filter((m) => m.type === tipo && !m.adjust && !m.transfer && m.date.startsWith(yPrefix))
+      .forEach((m) => set.add(Number(m.date.slice(5, 7)) - 1));
+    return set;
+  }, [counted, tipo, year]);
+
+  // Si el mes seleccionado se queda sin datos (al cambiar tipo/año), vuelve a "Todo el año"
+  useEffect(() => {
+    if (mes != null && !monthsWithData.has(mes)) setMes(null);
+  }, [monthsWithData, mes]);
 
   // Sumas por categoría del año y (si aplica) del mes seleccionado
   const { rows, annualTotal, monthTotal, max } = useMemo(() => {
@@ -72,7 +92,7 @@ export default function ResumenAnual({ counted, categories, onClose }) {
       <div className="absolute inset-0" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose} aria-hidden="true" />
       <div
         className="relative w-full max-w-lg rounded-2xl flex flex-col"
-        style={{ background: C.surface, border: `1px solid ${C.border}`, maxHeight: "85vh" }}
+        style={{ background: C.surface, border: `1px solid ${C.border}`, height: "92vh" }}
       >
         {/* Encabezado */}
         <div className="flex items-center justify-between gap-3 p-4" style={{ borderBottom: `1px solid ${C.borderSoft}` }}>
@@ -89,42 +109,25 @@ export default function ResumenAnual({ counted, categories, onClose }) {
 
         {/* Controles */}
         <div className="p-4 space-y-3" style={{ borderBottom: `1px solid ${C.borderSoft}` }}>
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            {/* Selector de año */}
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setYear((y) => Math.max(minYear, y - 1))}
-                disabled={year <= minYear}
-                aria-label="Año anterior"
-                className="rounded-lg px-2.5 py-1 text-sm transition-opacity"
-                style={{ border: `1px solid ${C.border}`, color: C.muted, opacity: year <= minYear ? 0.4 : 1 }}
-              >
-                ‹
-              </button>
-              <span className="font-mono text-lg" style={{ color: C.text, minWidth: 56, textAlign: "center" }}>{year}</span>
-              <button
-                onClick={() => setYear((y) => Math.min(maxYear, y + 1))}
-                disabled={year >= maxYear}
-                aria-label="Año siguiente"
-                className="rounded-lg px-2.5 py-1 text-sm transition-opacity"
-                style={{ border: `1px solid ${C.border}`, color: C.muted, opacity: year >= maxYear ? 0.4 : 1 }}
-              >
-                ›
-              </button>
-            </div>
-            {/* Gastos / Ingresos */}
-            <div className="flex gap-1">
-              {[["gasto", "Gastos"], ["ingreso", "Ingresos"]].map(([id, label]) => (
-                <Pill key={id} on={tipo === id} onClick={() => setTipo(id)}>{label}</Pill>
-              ))}
-            </div>
+          {/* Año y mes como listas desplegables (ahorran espacio) */}
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Año">
+              <Select value={year} onChange={(e) => setYear(Number(e.target.value))}>
+                {[...years].reverse().map((y) => <option key={y} value={y}>{y}</option>)}
+              </Select>
+            </Field>
+            <Field label="Mes">
+              <Select value={mes == null ? "" : String(mes)} onChange={(e) => setMes(e.target.value === "" ? null : Number(e.target.value))}>
+                <option value="">Todo el año</option>
+                {MONTH_NAMES.map((n, i) => (monthsWithData.has(i) ? <option key={i} value={i}>{cap(n)}</option> : null))}
+              </Select>
+            </Field>
           </div>
 
-          {/* Selector de mes */}
-          <div className="flex flex-wrap gap-1.5">
-            <Pill on={mes == null} onClick={() => setMes(null)}>Año</Pill>
-            {MES_ABBR.map((m, i) => (
-              <Pill key={i} on={mes === i} onClick={() => setMes(i)} style={{ textTransform: "capitalize" }}>{m}</Pill>
+          {/* Gastos / Ingresos */}
+          <div className="flex gap-1">
+            {[["gasto", "Gastos"], ["ingreso", "Ingresos"]].map(([id, label]) => (
+              <Pill key={id} on={tipo === id} onClick={() => setTipo(id)}>{label}</Pill>
             ))}
           </div>
 
@@ -142,8 +145,8 @@ export default function ResumenAnual({ counted, categories, onClose }) {
           )}
         </div>
 
-        {/* Lista por categoría (con scroll) */}
-        <div className="p-4 overflow-y-auto">
+        {/* Lista por categoría (ocupa el resto con scroll interno) */}
+        <div className="p-4 overflow-y-auto flex-1 min-h-0">
           {rows.length === 0 ? (
             <Empty>Sin {tipo === "gasto" ? "gastos" : "ingresos"} en {year}.</Empty>
           ) : (
