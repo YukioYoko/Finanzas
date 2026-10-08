@@ -449,12 +449,7 @@ export default function Resumen({ data, update }) {
                     <span className="text-sm">{cardLabel(card, accounts)}</span>
                     <div className="flex gap-2 mt-1 flex-wrap">
                       {statement ? (
-                        <>
-                          <Chip color={C.faint}>Corte: día {clampDay(card.cutDay)}</Chip>
-                          {statement.dueDate && (
-                            <Chip color={C.amber} bg={C.amberSoft}>Paga antes del {fmtDia(statement.dueDate)}</Chip>
-                          )}
-                        </>
+                        <Chip color={C.faint}>Corte: día {clampDay(card.cutDay)}</Chip>
                       ) : (
                         <Chip color={C.faint}>Sin día de corte · configúralo en Cuentas</Chip>
                       )}
@@ -498,11 +493,14 @@ export default function Resumen({ data, update }) {
                     </div>
                     {/* El botón Pagar vive junto al pago del mes: eso es lo que se paga, no la deuda total */}
                     <div className="rounded-lg px-3 py-2 flex items-center justify-between gap-3" style={{ background: C.bg, border: `1px solid ${C.borderSoft}` }}>
-                      <div>
+                      <div className="min-w-0">
                         <p className="text-xs" style={{ color: C.faint }}>Pago de este mes (saldo al corte)</p>
                         <span className="font-mono text-sm" style={{ color: statement.toPay > 0 ? C.amber : C.green, fontVariantNumeric: "tabular-nums" }}>
                           {money(statement.toPay)}
                         </span>
+                        {statement.dueDate && statement.toPay > 0 && (
+                          <p className="text-xs mt-0.5" style={{ color: C.amber }}>Paga antes del {fmtDia(statement.dueDate)}</p>
+                        )}
                       </div>
                       <Btn kind={statement.toPay > 0 ? "primary" : "ghost"} onClick={() => openPay(card, statement, debt)}>
                         {payFor === card.id ? "Cancelar" : "Pagar"}

@@ -12,11 +12,22 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      # versionCode debe subir en cada envío a Play; run_number es incremental
+      # versionCode debe subir en cada envío a Play; run_number es incremental.
       VERSION_CODE: ${{ github.run_number }}
-      VERSION_NAME: 1.0.${{ github.run_number }}
+      # BASE_RUN = run_number que corresponde a 1.1.0. A partir de ahí el "patch"
+      # cuenta 0..19 y cada 20 builds sube 1 el "minor": 1.1.0 … 1.1.19, 1.2.0 …
+      BASE_RUN: 40
     steps:
       - uses: actions/checkout@v4
+
+      - name: Calcular versionName (1.minor.patch, +1 al minor cada 20 builds)
+        run: |
+          N=$(( ${{ github.run_number }} - BASE_RUN ))
+          if [ "$N" -lt 0 ]; then N=0; fi
+          MINOR=$(( 1 + N / 20 ))
+          PATCH=$(( N % 20 ))
+          echo "VERSION_NAME=1.${MINOR}.${PATCH}" >> "$GITHUB_ENV"
+          echo "versionName = 1.${MINOR}.${PATCH} (run ${{ github.run_number }}, code $VERSION_CODE)"
 
       - uses: actions/setup-node@v4
         with:
@@ -83,7 +94,7 @@ jobs:
       - name: Publicar release con el APK
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: Mis Finanzas v1.0.${{ github.run_number }}
+          tag_name: v${{ env.VERSION_NAME }}-${{ github.run_number }}
+          name: Mis Finanzas v${{ env.VERSION_NAME }} (build ${{ github.run_number }})
           files: finanzas.apk
           body: "APK de Mis Finanzas. Descárgalo en tu Android y ábrelo para instalar. El AAB para Play Store está en los artefactos de esta ejecución."
