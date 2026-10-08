@@ -2,8 +2,8 @@ import { useState, useMemo } from "react";
 import { useTheme } from "../theme";
 import { MONTH_NAMES } from "../constants";
 import { money, uid, todayISO, isoOf, fmtDia } from "../utils/format";
-import { cardLabel, movTotal, balanceOfCard, creditStatement, clampDay, isDebtType, creditUsage, cashOverdraft } from "../lib/finance";
-import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty, InfoHint } from "../components/ui";
+import { cardLabel, movTotal, balanceOfCard, creditStatement, clampDay, isDebtType, creditUsage, cashOverdraft, cardTypeLabel } from "../lib/finance";
+import { Field, TextInput, Btn, Chip, Amount, Card, SectionTitle, Empty, InfoHint } from "../components/ui";
 import GraficaMensual from "../components/GraficaMensual";
 import GraficaCategorias from "../components/GraficaCategorias";
 import ResumenAnual from "../components/ResumenAnual";
@@ -85,8 +85,14 @@ export default function Resumen({ data, update }) {
   const totalToPayAll = debtByCard.reduce((s, d) => s + (d.statement ? d.statement.toPay : Math.max(d.debt, 0)), 0);
 
   // Pago de tarjeta de crédito o de deuda: transferencia (no cuenta como gasto/ingreso).
-  // El origen puede ser cualquier cuenta con dinero disponible (no crédito ni otra deuda).
-  const sourceCards = cards.filter((c) => c.type !== "credito" && c.type !== "deuda");
+  // Orígenes válidos: nunca la propia tarjeta/deuda ni otra deuda. Al pagar una DEUDA
+  // también se permiten tarjetas de crédito (puedes cubrirla con crédito); al pagar una
+  // tarjeta de crédito no se permite usar otra tarjeta de crédito.
+  const sourcesFor = (card) => cards.filter((c) => {
+    if (c.id === card.id || c.type === "deuda") return false;
+    if (card.type === "credito" && c.type === "credito") return false;
+    return true;
+  });
   const openPay = (card, statement, debt) => {
     if (payFor === card.id) { setPayFor(null); return; }
     setPayFor(card.id);
@@ -134,17 +140,47 @@ export default function Resumen({ data, update }) {
   };
 
   // Editor de pago reutilizable (tarjetas de crédito y deudas)
-  const payEditor = (card, statement, debt) => (
+  const payEditor = (card, statement, debt) => {
+    const srcCards = sourcesFor(card);
+    return (
     <div className="mt-3 rounded-lg p-3" style={{ background: C.surface2, border: `1px solid ${C.border}` }}>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <Field label="Pagar desde">
-          <Select value={paySrc} onChange={(e) => setPaySrc(e.target.value)}>
-            <option value="">— Elegir cuenta —</option>
-            {sourceCards.map((c) => (
-              <option key={c.id} value={c.id}>{cardLabel(c, accounts)} · {money(balanceOfCard(c, movements))}</option>
-            ))}
-          </Select>
-        </Field>
+      {/* Pagar desde: tarjetas/cuentas seleccionables con su saldo */}
+      <span className="block text-xs uppercase tracking-wider mb-1.5" style={{ color: C.muted }}>Pagar desde</span>
+      {srcCards.length === 0 ? (
+        <p className="text-xs mb-3" style={{ color: C.faint }}>No tienes otra cuenta desde la que pagar.</p>
+      ) : (
+        <div className="grid grid-cols-1 gap-2 mb-3">
+          {srcCards.map((c) => {
+            const on = paySrc === c.id;
+            const bal = balanceOfCard(c, movements);
+            const owes = isDebtType(c.type); // crédito: el saldo es lo que se debe
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setPaySrc(c.id)}
+                className="flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left transition-colors"
+                style={on
+                  ? { background: C.accentSoft, border: `1px solid ${C.accent}` }
+                  : { background: C.bg, border: `1px solid ${C.borderSoft}` }}
+              >
+                <div className="min-w-0">
+                  <p className="text-sm truncate" style={{ color: C.text, fontWeight: on ? 600 : 400 }}>
+                    {c.name}{c.last4 ? ` ····${c.last4}` : ""}
+                  </p>
+                  <p className="text-xs truncate" style={{ color: C.faint }}>
+                    {accById[c.accountId]?.name || ""} · {cardTypeLabel(c.type)}
+                  </p>
+                </div>
+                <span className="font-mono text-sm shrink-0" style={{ color: owes ? C.amber : bal < 0 ? C.red : C.text, fontVariantNumeric: "tabular-nums" }}>
+                  {owes ? `debe ${money(bal)}` : money(bal)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-3">
         <Field label="Monto (MXN)">
           <TextInput type="number" min="0" step="0.01" value={payAmt} onChange={(e) => setPayAmt(e.target.value)} />
         </Field>
@@ -170,7 +206,8 @@ export default function Resumen({ data, update }) {
         <Btn onClick={() => doPay(card)}>Registrar pago</Btn>
       </div>
     </div>
-  );
+    );
+  };
 
   // Cajas de ahorro
   const savingsCards = cards.filter((c) => c.type === "ahorro" && isCountedCard(c));

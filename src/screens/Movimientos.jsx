@@ -3,7 +3,7 @@ import { useTheme } from "../theme";
 import { FREQS, MESES_OPCIONES } from "../constants";
 import { money, uid, todayISO, isoOf } from "../utils/format";
 import { cardLabel, movTotal, cardTypeLabel, balanceOfCard, cashOverdraft } from "../lib/finance";
-import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty, Pill } from "../components/ui";
+import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty, Pill, CardPicker } from "../components/ui";
 import { IconSplit } from "../components/icons";
 
 const PERIODOS = [
@@ -109,41 +109,27 @@ function InboxItem({ item, data, onConfirm, onDiscard }) {
             <option value="transfer">Transferencia entre cuentas</option>
           </Select>
         </Field>
-        <Field label={isTransfer ? "Cuenta origen" : "Cuenta"}>
-          <Select value={accountId} onChange={(e) => { const id = e.target.value; setAccountId(id); setCardId(cashCardId(id, accounts, cards) || ""); }}>
-            <option value="">— Elegir cuenta —</option>
-            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
-          </Select>
-        </Field>
-        {!isCashAccount && (
-          <Field label={isTransfer ? "Tarjeta origen" : "Tarjeta"}>
-            <Select value={cardId} onChange={(e) => setCardId(e.target.value)} disabled={!accountId}>
-              <option value="">{accountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
-              {accCards.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""}</option>
-              ))}
-            </Select>
-          </Field>
-        )}
+        <div className="sm:col-span-3">
+          <CardPicker
+            label={isTransfer ? "Origen" : "Cuenta o tarjeta"}
+            cards={cards}
+            accounts={accounts}
+            movements={data.movements}
+            value={cardId}
+            onChange={setCardId}
+          />
+        </div>
         {isTransfer && (
-          <>
-            <Field label="Cuenta destino">
-              <Select value={toAccountId} onChange={(e) => { const id = e.target.value; setToAccountId(id); setToCardId(cashCardId(id, accounts, cards) || ""); }}>
-                <option value="">— Elegir cuenta —</option>
-                {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
-              </Select>
-            </Field>
-            {!isToCashAccount && (
-              <Field label="Tarjeta destino">
-                <Select value={toCardId} onChange={(e) => setToCardId(e.target.value)} disabled={!toAccountId}>
-                  <option value="">{toAccountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
-                  {toAccCards.filter((c) => c.id !== cardId).map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}</option>
-                  ))}
-                </Select>
-              </Field>
-            )}
-          </>
+          <div className="sm:col-span-3">
+            <CardPicker
+              label="Destino"
+              cards={cards.filter((c) => c.id !== cardId)}
+              accounts={accounts}
+              movements={data.movements}
+              value={toCardId}
+              onChange={setToCardId}
+            />
+          </div>
         )}
         <Field label="Monto (MXN)">
           <TextInput type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
@@ -228,34 +214,12 @@ function InboxTransferItem({ item, data, onConfirm, onDiscard }) {
       </div>
       {item.text && <p className="text-xs mb-3" style={{ color: C.faint }}>{item.text}</p>}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <Field label="Cuenta origen">
-          <Select value={fromAcc} onChange={(e) => { const id = e.target.value; setFromAcc(id); setFromCard(cashCardId(id, accounts, cards) || ""); }}>
-            <option value="">— Elegir cuenta —</option>
-            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
-          </Select>
-        </Field>
-        {!isFromCash && (
-          <Field label="Tarjeta origen">
-            <Select value={fromCard} onChange={(e) => setFromCard(e.target.value)} disabled={!fromAcc}>
-              <option value="">{fromAcc ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
-              {fromCards.map((c) => <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}</option>)}
-            </Select>
-          </Field>
-        )}
-        <Field label="Cuenta destino">
-          <Select value={toAcc} onChange={(e) => { const id = e.target.value; setToAcc(id); setToCard(cashCardId(id, accounts, cards) || ""); }}>
-            <option value="">— Elegir cuenta —</option>
-            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
-          </Select>
-        </Field>
-        {!isToCash && (
-          <Field label="Tarjeta destino">
-            <Select value={toCard} onChange={(e) => setToCard(e.target.value)} disabled={!toAcc}>
-              <option value="">{toAcc ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
-              {toCards.filter((c) => c.id !== fromCard).map((c) => <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}</option>)}
-            </Select>
-          </Field>
-        )}
+        <div className="sm:col-span-2">
+          <CardPicker label="Origen" cards={cards} accounts={accounts} movements={data.movements} value={fromCard} onChange={setFromCard} />
+        </div>
+        <div className="sm:col-span-2">
+          <CardPicker label="Destino" cards={cards.filter((c) => c.id !== fromCard)} accounts={accounts} movements={data.movements} value={toCard} onChange={setToCard} />
+        </div>
         <Field label="Monto (MXN)">
           <TextInput type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
         </Field>
@@ -341,22 +305,16 @@ function MovEditor({ mov, data, onSave, onCancel }) {
         <Field label="Fecha">
           <TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </Field>
-        <Field label="Cuenta">
-          <Select value={accountId} onChange={(e) => { const id = e.target.value; setAccountId(id); setCardId(cashCardId(id, accounts, cards) || ""); }}>
-            <option value="">— Elegir cuenta —</option>
-            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
-          </Select>
-        </Field>
-        {!isCashAccount && (
-          <Field label="Tarjeta">
-            <Select value={cardId} onChange={(e) => setCardId(e.target.value)} disabled={!accountId}>
-              <option value="">{accountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
-              {accCards.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""}</option>
-              ))}
-            </Select>
-          </Field>
-        )}
+        <div className="sm:col-span-2">
+          <CardPicker
+            label="Cuenta o tarjeta"
+            cards={cards}
+            accounts={accounts}
+            movements={data.movements}
+            value={cardId}
+            onChange={setCardId}
+          />
+        </div>
         <Field label="Monto (MXN)">
           <TextInput type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
         </Field>
@@ -452,34 +410,12 @@ function TransferEditor({ mov, data, onSave, onCancel }) {
         <Btn kind="ghost" onClick={onCancel} size="sm">Cancelar</Btn>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <Field label="Cuenta origen">
-          <Select value={fromAcc} onChange={(e) => { const id = e.target.value; setFromAcc(id); setFromCard(cashCardId(id, accounts, cards) || ""); }}>
-            <option value="">— Elegir cuenta —</option>
-            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
-          </Select>
-        </Field>
-        {!isFromCash && (
-          <Field label="Tarjeta origen">
-            <Select value={fromCard} onChange={(e) => setFromCard(e.target.value)} disabled={!fromAcc}>
-              <option value="">{fromAcc ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
-              {fromCards.map((c) => <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}</option>)}
-            </Select>
-          </Field>
-        )}
-        <Field label="Cuenta destino">
-          <Select value={toAcc} onChange={(e) => { const id = e.target.value; setToAcc(id); setToCard(cashCardId(id, accounts, cards) || ""); }}>
-            <option value="">— Elegir cuenta —</option>
-            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
-          </Select>
-        </Field>
-        {!isToCash && (
-          <Field label="Tarjeta destino">
-            <Select value={toCard} onChange={(e) => setToCard(e.target.value)} disabled={!toAcc}>
-              <option value="">{toAcc ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
-              {toCards.filter((c) => c.id !== fromCard).map((c) => <option key={c.id} value={c.id}>{c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}</option>)}
-            </Select>
-          </Field>
-        )}
+        <div className="sm:col-span-2">
+          <CardPicker label="Origen" cards={cards} accounts={accounts} movements={data.movements} value={fromCard} onChange={setFromCard} />
+        </div>
+        <div className="sm:col-span-2">
+          <CardPicker label="Destino" cards={cards.filter((c) => c.id !== fromCard)} accounts={accounts} movements={data.movements} value={toCard} onChange={setToCard} />
+        </div>
         <Field label="Monto (MXN)">
           <TextInput type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
         </Field>
@@ -761,48 +697,28 @@ export default function Movimientos({ data, update }) {
               </div>
             )}
             {!isSplit && (
-              <>
-                <Field label={isTransfer ? "Cuenta origen" : "Cuenta"}>
-                  <Select value={accountId} onChange={(e) => { const id = e.target.value; setAccountId(id); setCardId(cashCardId(id, accounts, cards) || ""); }}>
-                    <option value="">— Elegir cuenta —</option>
-                    {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
-                  </Select>
-                </Field>
-                {!isCashAccount && (
-                  <Field label={isTransfer ? "Tarjeta origen" : "Tarjeta"}>
-                    <Select value={cardId} onChange={(e) => setCardId(e.target.value)} disabled={!accountId}>
-                      <option value="">{accountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
-                      {accCards.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                )}
-              </>
+              <div className="sm:col-span-2">
+                <CardPicker
+                  label={isTransfer ? "Origen" : "Cuenta o tarjeta"}
+                  cards={cards}
+                  accounts={accounts}
+                  movements={movements}
+                  value={cardId}
+                  onChange={setCardId}
+                />
+              </div>
             )}
             {isTransfer && (
-              <>
-                <Field label="Cuenta destino">
-                  <Select value={toAccountId} onChange={(e) => { const id = e.target.value; setToAccountId(id); setToCardId(cashCardId(id, accounts, cards) || ""); }}>
-                    <option value="">— Elegir cuenta —</option>
-                    {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
-                  </Select>
-                </Field>
-                {!isToCashAccount && (
-                  <Field label="Tarjeta destino">
-                    <Select value={toCardId} onChange={(e) => setToCardId(e.target.value)} disabled={!toAccountId}>
-                      <option value="">{toAccountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
-                      {toAccCards.filter((c) => c.id !== cardId).map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                )}
-              </>
+              <div className="sm:col-span-2">
+                <CardPicker
+                  label="Destino"
+                  cards={cards.filter((c) => c.id !== cardId)}
+                  accounts={accounts}
+                  movements={movements}
+                  value={toCardId}
+                  onChange={setToCardId}
+                />
+              </div>
             )}
             {!isSplit && (
               <Field label="Monto (MXN)">

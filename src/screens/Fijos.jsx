@@ -3,7 +3,7 @@ import { useTheme } from "../theme";
 import { FREQS, WEEKDAYS } from "../constants";
 import { money, uid, todayISO, fmtDia } from "../utils/format";
 import { cardLabel, clampDay, clampWeekday, nextChargeOf, cardTypeLabel, recurringFreqLabel, monthlyEquivalent } from "../lib/finance";
-import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty } from "../components/ui";
+import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty, CardPicker } from "../components/ui";
 
 // Una cuenta de efectivo tiene una única cartera; devuelve su id (para autoseleccionarla
 // y ocultar el selector de tarjeta), o null si la cuenta no es de efectivo.
@@ -108,24 +108,16 @@ function FijoForm({ data, initial, onSave, onCancel }) {
             <TextInput type="number" min="1" max="31" value={day} onChange={(e) => setDay(e.target.value)} placeholder="Ej. 16" />
           </Field>
         )}
-        <Field label="Cuenta">
-          <Select value={accountId} onChange={(e) => { const id = e.target.value; setAccountId(id); setCardId(cashCardId(id, accounts, cards) || ""); }}>
-            <option value="">— Elegir cuenta —</option>
-            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.bank ? ` (${a.bank})` : ""}</option>)}
-          </Select>
-        </Field>
-        {!isCashAccount && (
-          <Field label={isAbono ? "Tarjeta donde se abona" : "Tarjeta donde se cobra"}>
-            <Select value={cardId} onChange={(e) => setCardId(e.target.value)} disabled={!accountId}>
-              <option value="">{accountId ? "— Elegir tarjeta —" : "Primero elige una cuenta"}</option>
-              {accCards.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        )}
+        <div className="sm:col-span-2">
+          <CardPicker
+            label={isAbono ? "Cuenta/tarjeta donde se abona" : "Cuenta/tarjeta donde se cobra"}
+            cards={cards}
+            accounts={accounts}
+            movements={data.movements}
+            value={cardId}
+            onChange={setCardId}
+          />
+        </div>
         <Field label="Categoría">
           <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
             <option value="">— Elegir categoría —</option>

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useTheme } from "../theme";
 import { money } from "../utils/format";
+import { balanceOfCard, isDebtType, cardTypeLabel } from "../lib/finance";
 
 export function Field({ label, hint, children }) {
   const C = useTheme();
@@ -89,10 +90,75 @@ export function TextInput(props) {
 
 export function Select({ children, ...props }) {
   const base = useInputStyle();
+  const C = useTheme();
+  // Flecha (chevron) propia del tema en lugar de la del sistema, para un look limpio y uniforme
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='${C.muted}' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'><path d='M3 4.5 6 7.5 9 4.5'/></svg>`;
+  const chevron = `url("data:image/svg+xml;utf8,${svg.replace(/#/g, "%23")}")`;
   return (
-    <select {...props} style={{ ...base, ...(props.style || {}) }}>
+    <select
+      {...props}
+      style={{
+        ...base,
+        appearance: "none",
+        WebkitAppearance: "none",
+        MozAppearance: "none",
+        cursor: "pointer",
+        paddingRight: 32,
+        backgroundImage: chevron,
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "right 10px center",
+        ...(props.style || {}),
+      }}
+    >
       {children}
     </select>
+  );
+}
+
+// Selector de cuenta/tarjeta en forma de tarjetas tocables (muestra el saldo).
+// Reemplaza el par "Cuenta + Tarjeta" por una sola lista; al elegir una tarjeta,
+// su cuenta queda implícita. `cards` ya viene filtrada por quien lo usa.
+export function CardPicker({ label, cards, accounts, movements, value, onChange, empty }) {
+  const C = useTheme();
+  const accName = (id) => accounts.find((a) => a.id === id)?.name || "";
+  return (
+    <div>
+      {label && <span className="block text-xs uppercase tracking-wider mb-1.5" style={{ color: C.muted }}>{label}</span>}
+      {cards.length === 0 ? (
+        <p className="text-xs" style={{ color: C.faint }}>{empty || "No hay cuentas disponibles."}</p>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {cards.map((c) => {
+            const on = value === c.id;
+            const bal = balanceOfCard(c, movements);
+            const owes = isDebtType(c.type); // crédito/deuda: el saldo es lo que se debe
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => onChange(c.id)}
+                className="flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-left transition-colors"
+                style={on
+                  ? { background: C.accentSoft, border: `1px solid ${C.accent}` }
+                  : { background: C.bg, border: `1px solid ${C.borderSoft}` }}
+              >
+                <div className="min-w-0">
+                  <p className="text-sm truncate" style={{ color: C.text, fontWeight: on ? 600 : 400 }}>
+                    {c.name}{c.last4 ? ` ····${c.last4}` : ""}
+                  </p>
+                  <p className="text-xs truncate" style={{ color: C.faint }}>
+                    {accName(c.accountId)} · {cardTypeLabel(c.type)}
+                  </p>
+                </div>
+                <span className="font-mono text-xs shrink-0" style={{ color: owes ? C.amber : bal < 0 ? C.red : C.muted, fontVariantNumeric: "tabular-nums" }}>
+                  {owes ? `debe ${money(bal)}` : money(bal)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
