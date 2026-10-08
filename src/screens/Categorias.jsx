@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useTheme } from "../theme";
 import { FREQS } from "../constants";
 import { uid } from "../utils/format";
-import { Field, TextInput, Select, Btn, Card, SectionTitle } from "../components/ui";
+import { Field, TextInput, Select, Btn, Card, SectionTitle, OptionPicker } from "../components/ui";
 
 export default function Categorias({ data, update }) {
   const C = useTheme();
@@ -40,11 +40,12 @@ export default function Categorias({ data, update }) {
               <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej. Mascotas, Vacaciones…" />
             </Field>
           </div>
-          <Field label="Frecuencia del gasto">
-            <Select value={freq} onChange={(e) => setFreq(e.target.value)}>
-              {FREQS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
-            </Select>
-          </Field>
+          <OptionPicker
+            label="Frecuencia del gasto"
+            value={freq}
+            onChange={setFreq}
+            options={FREQS.map((f) => ({ value: f.id, label: f.label }))}
+          />
         </div>
         {error && <p className="text-xs mt-2" style={{ color: C.red }}>{error}</p>}
         <div className="mt-3">

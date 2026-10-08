@@ -3,7 +3,7 @@ import { useTheme } from "../theme";
 import { MONTH_NAMES } from "../constants";
 import { money } from "../utils/format";
 import { movTotal } from "../lib/finance";
-import { Pill, Empty, Field, Select } from "./ui";
+import { Pill, Empty, OptionPicker } from "./ui";
 
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -111,17 +111,21 @@ export default function ResumenAnual({ counted, categories, onClose }) {
         <div className="p-4 space-y-3" style={{ borderBottom: `1px solid ${C.borderSoft}` }}>
           {/* Año y mes como listas desplegables (ahorran espacio) */}
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Año">
-              <Select value={year} onChange={(e) => setYear(Number(e.target.value))}>
-                {[...years].reverse().map((y) => <option key={y} value={y}>{y}</option>)}
-              </Select>
-            </Field>
-            <Field label="Mes">
-              <Select value={mes == null ? "" : String(mes)} onChange={(e) => setMes(e.target.value === "" ? null : Number(e.target.value))}>
-                <option value="">Todo el año</option>
-                {MONTH_NAMES.map((n, i) => (monthsWithData.has(i) ? <option key={i} value={i}>{cap(n)}</option> : null))}
-              </Select>
-            </Field>
+            <OptionPicker
+              label="Año"
+              value={year}
+              onChange={(v) => setYear(Number(v))}
+              options={[...years].reverse().map((y) => ({ value: y, label: String(y) }))}
+            />
+            <OptionPicker
+              label="Mes"
+              value={mes == null ? "" : String(mes)}
+              onChange={(v) => setMes(v === "" ? null : Number(v))}
+              options={[
+                { value: "", label: "Todo el año" },
+                ...MONTH_NAMES.map((n, i) => ({ value: i, label: cap(n) })).filter((o) => monthsWithData.has(o.value)),
+              ]}
+            />
           </div>
 
           {/* Gastos / Ingresos */}

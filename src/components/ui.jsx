@@ -209,6 +209,92 @@ export function CardPicker({ label, cards, accounts, movements, value, onChange,
   );
 }
 
+// Selector genérico (tipo, categoría, año, mes, frecuencia…) con la misma estética
+// que CardPicker: un campo que, al tocarlo, abre un modal con las opciones.
+// `options`: [{ value, label, group?, sublabel? }]. Si hay `group`, se agrupan.
+export function OptionPicker({ label, options, value, onChange, placeholder, title }) {
+  const C = useTheme();
+  const base = useInputStyle();
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [open]);
+
+  const selected = options.find((o) => String(o.value) === String(value)) || null;
+  const grouped = options.some((o) => o.group);
+  const groups = grouped ? [...new Set(options.map((o) => o.group || ""))] : [""];
+
+  const Chevron = () => (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke={C.muted} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden="true">
+      <path d="M3 4.5 6 7.5 9 4.5" />
+    </svg>
+  );
+
+  const tile = (o) => {
+    const on = String(o.value) === String(value);
+    return (
+      <button
+        key={String(o.value)}
+        type="button"
+        onClick={() => { onChange(o.value); setOpen(false); }}
+        className="w-full flex items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-colors"
+        style={on
+          ? { background: C.accentSoft, border: `1px solid ${C.accent}` }
+          : { background: C.bg, border: `1px solid ${C.borderSoft}` }}
+      >
+        <span className="truncate text-sm" style={{ color: C.text, fontWeight: on ? 600 : 400 }}>{o.label}</span>
+        {o.sublabel && <span className="text-xs shrink-0" style={{ color: C.faint }}>{o.sublabel}</span>}
+      </button>
+    );
+  };
+
+  return (
+    <div>
+      {label && <span className="block text-xs uppercase tracking-wider mb-1" style={{ color: C.muted }}>{label}</span>}
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        style={{ ...base, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, textAlign: "left" }}
+      >
+        <span className="truncate" style={{ color: selected ? C.text : C.faint }}>{selected ? selected.label : (placeholder || "Seleccionar")}</span>
+        <Chevron />
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={title || label || "Seleccionar"}>
+          <div className="absolute inset-0" style={{ background: "rgba(0,0,0,0.6)" }} onClick={() => setOpen(false)} aria-hidden="true" />
+          <div className="relative w-full max-w-md rounded-2xl flex flex-col overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.border}`, maxHeight: "80vh" }}>
+            <div className="flex items-center justify-between gap-3 p-4" style={{ borderBottom: `1px solid ${C.borderSoft}` }}>
+              <h3 className="text-sm uppercase tracking-widest" style={{ color: C.accent }}>{title || label || "Elegir"}</h3>
+              <button onClick={() => setOpen(false)} aria-label="Cerrar" className="rounded-full p-2 transition-opacity hover:opacity-85" style={{ border: `1px solid ${C.border}`, color: C.muted, lineHeight: 1 }}>✕</button>
+            </div>
+            <div className="p-4 overflow-y-auto">
+              {options.length === 0 ? (
+                <p className="text-xs" style={{ color: C.faint }}>Sin opciones.</p>
+              ) : (
+                groups.map((g) => {
+                  const opts = options.filter((o) => (o.group || "") === g);
+                  if (!opts.length) return null;
+                  return (
+                    <div key={g || "_"} className={g ? "mt-3 first:mt-0" : ""}>
+                      {g && <p className="text-xs uppercase tracking-wider mb-1.5" style={{ color: C.muted }}>{g}</p>}
+                      <div className="grid grid-cols-1 gap-2">{opts.map(tile)}</div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Tamaños de botón unificados (usa `size` en vez de padding inline suelto)
 const BTN_SIZES = {
   sm: { padding: "5px 10px", fontSize: 13 },

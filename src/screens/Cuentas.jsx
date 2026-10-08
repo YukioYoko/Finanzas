@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useTheme } from "../theme";
 import { money, uid, todayISO } from "../utils/format";
 import { balanceOfCard, clampDay, isDebtType, cardTypeLabel } from "../lib/finance";
-import { Field, TextInput, Select, Btn, Chip, Card, SectionTitle, Empty, InfoHint } from "../components/ui";
+import { Field, TextInput, Select, Btn, Chip, Card, SectionTitle, Empty, InfoHint, OptionPicker } from "../components/ui";
 
 // Explicaciones reutilizables para las fechas de la tarjeta de crédito
 const HINT_CORTE = (
@@ -228,13 +228,16 @@ export default function Cuentas({ data, update }) {
       {showAccForm && (
         <Card>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Field label="Tipo de cuenta">
-              <Select value={accType} onChange={(e) => setAccType(e.target.value)}>
-                <option value="banco">Cuenta bancaria</option>
-                <option value="efectivo">Efectivo</option>
-                <option value="deuda">Deuda</option>
-              </Select>
-            </Field>
+            <OptionPicker
+              label="Tipo de cuenta"
+              value={accType}
+              onChange={setAccType}
+              options={[
+                { value: "banco", label: "Cuenta bancaria" },
+                { value: "efectivo", label: "Efectivo" },
+                { value: "deuda", label: "Deuda" },
+              ]}
+            />
             <Field label={accType === "deuda" ? "Título de la deuda" : "Nombre de la cuenta"}>
               <TextInput
                 value={accName}
@@ -345,13 +348,16 @@ export default function Cuentas({ data, update }) {
                   <Field label={cardType === "ahorro" ? "Nombre de la caja" : "Nombre de la tarjeta"}>
                     <TextInput value={cardName} onChange={(e) => setCardName(e.target.value)} placeholder={cardType === "ahorro" ? "Ej. Ahorro emergencias" : "Ej. Oro, Nómina…"} />
                   </Field>
-                  <Field label="Tipo">
-                    <Select value={cardType} onChange={(e) => setCardType(e.target.value)}>
-                      <option value="debito">Tarjeta de débito</option>
-                      <option value="credito">Tarjeta de crédito</option>
-                      <option value="ahorro">Caja de ahorro</option>
-                    </Select>
-                  </Field>
+                  <OptionPicker
+                    label="Tipo"
+                    value={cardType}
+                    onChange={setCardType}
+                    options={[
+                      { value: "debito", label: "Tarjeta de débito" },
+                      { value: "credito", label: "Tarjeta de crédito" },
+                      { value: "ahorro", label: "Caja de ahorro" },
+                    ]}
+                  />
                   {cardType === "ahorro" ? (
                     <Field label="Rendimiento anual (%)" hint={HINT_RENDIMIENTO}>
                       <TextInput type="number" min="0" step="0.01" value={cardRate} onChange={(e) => setCardRate(e.target.value)} placeholder="Ej. 10" />

@@ -3,7 +3,7 @@ import { useTheme } from "../theme";
 import { FREQS, WEEKDAYS } from "../constants";
 import { money, uid, todayISO, fmtDia } from "../utils/format";
 import { cardLabel, clampDay, clampWeekday, nextChargeOf, cardTypeLabel, recurringFreqLabel, monthlyEquivalent } from "../lib/finance";
-import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty, CardPicker } from "../components/ui";
+import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty, CardPicker, OptionPicker } from "../components/ui";
 
 // Una cuenta de efectivo tiene una única cartera; devuelve su id (para autoseleccionarla
 // y ocultar el selector de tarjeta), o null si la cuenta no es de efectivo.
@@ -73,12 +73,12 @@ function FijoForm({ data, initial, onSave, onCancel }) {
         </div>
       )}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <Field label="Tipo">
-          <Select value={kind} onChange={(e) => setKind(e.target.value)}>
-            <option value="gasto">Cargo (gasto)</option>
-            <option value="ingreso">Abono (ingreso)</option>
-          </Select>
-        </Field>
+        <OptionPicker
+          label="Tipo"
+          value={kind}
+          onChange={setKind}
+          options={[{ value: "gasto", label: "Cargo (gasto)" }, { value: "ingreso", label: "Abono (ingreso)" }]}
+        />
         <Field label="Título">
           <TextInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder={isAbono ? "Ej. Ahorro mensual, quincena…" : "Ej. Netflix, Spotify, gimnasio…"} />
         </Field>
@@ -118,18 +118,13 @@ function FijoForm({ data, initial, onSave, onCancel }) {
             onChange={setCardId}
           />
         </div>
-        <Field label="Categoría">
-          <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-            <option value="">— Elegir categoría —</option>
-            {FREQS.map((f) => (
-              <optgroup key={f.id} label={f.label}>
-                {categories.filter((c) => c.freq === f.id).map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </optgroup>
-            ))}
-          </Select>
-        </Field>
+        <OptionPicker
+          label="Categoría"
+          value={categoryId}
+          onChange={setCategoryId}
+          placeholder="Elegir categoría"
+          options={FREQS.flatMap((f) => categories.filter((c) => c.freq === f.id).map((c) => ({ value: c.id, label: c.name, group: f.label })))}
+        />
         <Field label="Fecha de fin (opcional)">
           <TextInput type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
         </Field>

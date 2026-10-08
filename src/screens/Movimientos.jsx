@@ -3,7 +3,11 @@ import { useTheme } from "../theme";
 import { FREQS, MESES_OPCIONES } from "../constants";
 import { money, uid, todayISO, isoOf } from "../utils/format";
 import { cardLabel, movTotal, cardTypeLabel, balanceOfCard, cashOverdraft } from "../lib/finance";
-import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty, Pill, CardPicker } from "../components/ui";
+import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty, Pill, CardPicker, OptionPicker } from "../components/ui";
+
+// Opciones de categoría agrupadas por frecuencia (para OptionPicker)
+const catOptionsOf = (categories) =>
+  FREQS.flatMap((f) => categories.filter((c) => c.freq === f.id).map((c) => ({ value: c.id, label: c.name, group: f.label })));
 import { IconSplit } from "../components/icons";
 
 const PERIODOS = [
@@ -102,13 +106,16 @@ function InboxItem({ item, data, onConfirm, onDiscard }) {
       </div>
       <p className="text-xs mb-3" style={{ color: C.faint }}>{item.text}</p>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <Field label="Tipo">
-          <Select value={type} onChange={(e) => setType(e.target.value)}>
-            <option value="gasto">Gasto</option>
-            <option value="ingreso">Ingreso</option>
-            <option value="transfer">Transferencia entre cuentas</option>
-          </Select>
-        </Field>
+        <OptionPicker
+          label="Tipo"
+          value={type}
+          onChange={setType}
+          options={[
+            { value: "gasto", label: "Gasto" },
+            { value: "ingreso", label: "Ingreso" },
+            { value: "transfer", label: "Transferencia entre cuentas" },
+          ]}
+        />
         <div className="sm:col-span-3">
           <CardPicker
             label={isTransfer ? "Origen" : "Cuenta o tarjeta"}
@@ -138,18 +145,13 @@ function InboxItem({ item, data, onConfirm, onDiscard }) {
           <TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </Field>
         {!isTransfer && (
-          <Field label="Categoría">
-            <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-              <option value="">— Elegir categoría —</option>
-              {FREQS.map((f) => (
-                <optgroup key={f.id} label={f.label}>
-                  {categories.filter((c) => c.freq === f.id).map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </optgroup>
-              ))}
-            </Select>
-          </Field>
+          <OptionPicker
+            label="Categoría"
+            value={categoryId}
+            onChange={setCategoryId}
+            placeholder="Elegir categoría"
+            options={catOptionsOf(categories)}
+          />
         )}
         <Field label={isTransfer ? "Título (opcional)" : "Título"}>
           <TextInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder={isTransfer ? "Se genera solo si lo dejas vacío" : "Ej. Súper, gasolina…"} />
@@ -301,12 +303,12 @@ function MovEditor({ mov, data, onSave, onCancel }) {
         <Field label="Descripción (opcional)">
           <TextInput value={description} onChange={(e) => setDescription(e.target.value)} />
         </Field>
-        <Field label="Tipo">
-          <Select value={type} onChange={(e) => setType(e.target.value)}>
-            <option value="gasto">Gasto</option>
-            <option value="ingreso">Ingreso</option>
-          </Select>
-        </Field>
+        <OptionPicker
+          label="Tipo"
+          value={type}
+          onChange={setType}
+          options={[{ value: "gasto", label: "Gasto" }, { value: "ingreso", label: "Ingreso" }]}
+        />
         <Field label="Fecha">
           <TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </Field>
@@ -324,18 +326,13 @@ function MovEditor({ mov, data, onSave, onCancel }) {
           <TextInput type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
         </Field>
         {!isAdjust && (
-          <Field label="Categoría">
-            <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-              <option value="">— Elegir categoría —</option>
-              {FREQS.map((f) => (
-                <optgroup key={f.id} label={f.label}>
-                  {categories.filter((c) => c.freq === f.id).map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </optgroup>
-              ))}
-            </Select>
-          </Field>
+          <OptionPicker
+            label="Categoría"
+            value={categoryId}
+            onChange={setCategoryId}
+            placeholder="Elegir categoría"
+            options={catOptionsOf(categories)}
+          />
         )}
       </div>
       {isCreditExpense && (
@@ -696,13 +693,16 @@ export default function Movimientos({ data, update }) {
       {show && (
         <Card>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Tipo">
-              <Select value={type} onChange={(e) => setType(e.target.value)}>
-                <option value="gasto">Gasto</option>
-                <option value="ingreso">Ingreso / Depósito / Pago a tarjeta</option>
-                <option value="transfer">Transferencia entre cuentas</option>
-              </Select>
-            </Field>
+            <OptionPicker
+              label="Tipo"
+              value={type}
+              onChange={setType}
+              options={[
+                { value: "gasto", label: "Gasto" },
+                { value: "ingreso", label: "Ingreso / Depósito / Pago a tarjeta" },
+                { value: "transfer", label: "Transferencia entre cuentas" },
+              ]}
+            />
             <Field label="Fecha">
               <TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} />
             </Field>
@@ -751,18 +751,13 @@ export default function Movimientos({ data, update }) {
               </Field>
             )}
             {!isTransfer && (
-              <Field label="Categoría">
-                <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-                  <option value="">— Elegir categoría —</option>
-                  {FREQS.map((f) => (
-                    <optgroup key={f.id} label={f.label}>
-                      {categories.filter((c) => c.freq === f.id).map((c) => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </Select>
-              </Field>
+              <OptionPicker
+                label="Categoría"
+                value={categoryId}
+                onChange={setCategoryId}
+                placeholder="Elegir categoría"
+                options={catOptionsOf(categories)}
+              />
             )}
             <Field label={isTransfer ? "Título (opcional)" : "Título"}>
               <TextInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ej. Súper, Netflix, gasolina…" />
