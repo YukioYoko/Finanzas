@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { useTheme } from "../theme";
 import { FREQS, MESES_OPCIONES } from "../constants";
 import { money, uid, todayISO, isoOf } from "../utils/format";
-import { cardLabel, movTotal, cardTypeLabel, balanceOfCard, cashOverdraft } from "../lib/finance";
+import { cardLabel, movTotal, cardTypeLabel, balanceOfCard, cashOverdraft, isDebtType } from "../lib/finance";
 import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty, Pill, CardPicker, OptionPicker } from "../components/ui";
 
 // Opciones de categoría agrupadas por frecuencia (para OptionPicker)
@@ -27,9 +27,10 @@ function startOfWeek(d) {
   return monday;
 }
 
-// Filtra una lista ya ordenada (más nuevo primero) según el periodo elegido
-function filterByPeriodo(sorted, periodo) {
-  if (periodo === "recientes") return sorted.slice(0, 10);
+// Filtra una lista ya ordenada (más nuevo primero) según el periodo elegido.
+// `recentLimit` es el tope del modo "recientes" (10 normal, 20 al ver cuentas).
+function filterByPeriodo(sorted, periodo, recentLimit = 10) {
+  if (periodo === "recientes") return sorted.slice(0, recentLimit);
   const now = new Date();
   let fromISO;
   if (periodo === "dia") fromISO = todayISO();
@@ -499,8 +500,9 @@ export default function Movimientos({ data, update }) {
   const [editId, setEditId] = useState(null);
   const [periodo, setPeriodo] = useState("recientes");
   const [catFilter, setCatFilter] = useState([]); // categorías seleccionadas (vacío = todas)
-  const [cardFilter, setCardFilter] = useState([]); // tarjetas seleccionadas (vacío = todas)
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [accFilter, setAccFilter] = useState([]); // cuentas seleccionadas (vacío = todas)
+  const [catOpen, setCatOpen] = useState(false); // modal de categorías
+  const [accOpen, setAccOpen] = useState(false); // modal de cuentas
   const [categoryId, setCategoryId] = useState("");
   const [date, setDate] = useState(todayISO());
   const [aMeses, setAMeses] = useState(false);
@@ -649,9 +651,21 @@ export default function Movimientos({ data, update }) {
 
   const sorted = [...movements].sort((a, b) => (a.date < b.date ? 1 : -1));
   const byCat = catFilter.length ? sorted.filter((m) => catFilter.includes(m.categoryId)) : sorted;
-  const byCard = cardFilter.length ? byCat.filter((m) => cardFilter.includes(m.cardId)) : byCat;
-  const visibles = filterByPeriodo(byCard, periodo);
-  const activeFilters = catFilter.length + cardFilter.length;
+  const byAcc = accFilter.length ? byCat.filter((m) => accFilter.includes(cardById[m.cardId]?.accountId)) : byCat;
+  // Al ver cuentas específicas se muestran hasta 20 recientes (las etiquetas de arriba amplían)
+  const visibles = filterByPeriodo(byAcc, periodo, accFilter.length ? 20 : 10);
+  const activeFilters = catFilter.length + accFilter.length;
+
+  // Resumen de las cuentas seleccionadas: saldo al inicio del mes y saldo actual
+  const monthStart = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-01`;
+  const movsBeforeMonth = movements.filter((m) => m.date < monthStart);
+  const accBalanceWith = (accId, movs) => cards
+    .filter((c) => c.accountId === accId)
+    .reduce((s, c) => s + (isDebtType(c.type) ? -balanceOfCard(c, movs) : balanceOfCard(c, movs)), 0);
+  const selectedAccounts = accFilter
+    .map((id) => accounts.find((a) => a.id === id))
+    .filter(Boolean)
+    .map((a) => ({ acc: a, inicio: accBalanceWith(a.id, movsBeforeMonth), actual: accBalanceWith(a.id, movements) }));
 
   // Agrupa las patas de un pago dividido (mismo splitId) en una sola fila de la lista
   const visibleRows = [];
@@ -896,110 +910,124 @@ export default function Movimientos({ data, update }) {
                 <Pill key={p.id} on={periodo === p.id} onClick={() => setPeriodo(p.id)}>{p.label}</Pill>
               ))}
             </div>
-            <Btn kind={filtersOpen || activeFilters ? "primary" : "ghost"} size="sm" onClick={() => setFiltersOpen((v) => !v)}>
-              Filtros{activeFilters ? ` · ${activeFilters}` : ""}
-            </Btn>
+            <div className="flex gap-2">
+              <Btn kind={catFilter.length ? "primary" : "ghost"} size="sm" onClick={() => setCatOpen(true)}>
+                Categorías{catFilter.length ? ` · ${catFilter.length}` : ""}
+              </Btn>
+              <Btn kind={accFilter.length ? "primary" : "ghost"} size="sm" onClick={() => setAccOpen(true)}>
+                Cuentas{accFilter.length ? ` · ${accFilter.length}` : ""}
+              </Btn>
+            </div>
           </div>
 
-          {/* Chips de los filtros activos, para verlos de un vistazo sin abrir el panel */}
-          {activeFilters > 0 && !filtersOpen && (
-            <div className="flex flex-wrap gap-1.5 items-center">
-              {cardFilter.map((id) => {
-                const c = cardById[id];
-                if (!c) return null;
-                return (
-                  <button key={id} onClick={() => setCardFilter((prev) => prev.filter((x) => x !== id))}
-                    className="rounded-full px-2.5 py-0.5 text-xs inline-flex items-center gap-1"
-                    style={{ background: C.accentSoft, color: C.accent, border: `1px solid ${C.border}` }}>
-                    {c.name}{c.last4 ? ` ····${c.last4}` : ""} <span aria-hidden="true">✕</span>
-                  </button>
-                );
-              })}
-              {catFilter.map((id) => {
-                const c = catById[id];
-                if (!c) return null;
-                return (
-                  <button key={id} onClick={() => setCatFilter((prev) => prev.filter((x) => x !== id))}
-                    className="rounded-full px-2.5 py-0.5 text-xs inline-flex items-center gap-1"
-                    style={{ background: C.accentSoft, color: C.accent, border: `1px solid ${C.border}` }}>
-                    {c.name} <span aria-hidden="true">✕</span>
-                  </button>
-                );
-              })}
-              <button onClick={() => { setCatFilter([]); setCardFilter([]); }} className="text-xs px-1" style={{ color: C.muted }}>
-                Limpiar
-              </button>
-            </div>
-          )}
-
-          {filtersOpen && (
+          {/* Resumen de las cuentas seleccionadas: saldo al inicio del mes → actual */}
+          {selectedAccounts.length > 0 && (
             <Card style={{ paddingTop: 12, paddingBottom: 12 }}>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>Cuentas y tarjetas</span>
-                {cardFilter.length > 0 && (
-                  <button onClick={() => setCardFilter([])} className="text-xs" style={{ color: C.accent }}>Limpiar</button>
-                )}
+                <span className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>
+                  {selectedAccounts.length === 1 ? "Cuenta seleccionada" : `${selectedAccounts.length} cuentas seleccionadas`}
+                </span>
+                <button onClick={() => setAccFilter([])} className="text-xs" style={{ color: C.accent }}>Quitar</button>
               </div>
-              <div className="space-y-2.5">
-                {accounts.map((a) => {
-                  const accCardList = cards.filter((c) => c.accountId === a.id);
-                  if (!accCardList.length) return null;
-                  const ids = accCardList.map((c) => c.id);
-                  const allOn = ids.every((id) => cardFilter.includes(id));
-                  const toggleAll = () => setCardFilter((prev) => (allOn ? prev.filter((x) => !ids.includes(x)) : [...new Set([...prev, ...ids])]));
-                  return (
-                    <div key={a.id}>
-                      <button onClick={toggleAll} className="text-xs mb-1 transition-opacity hover:opacity-80" style={{ color: allOn ? C.accent : C.faint, fontWeight: allOn ? 600 : 400 }}>
-                        {a.name}{a.bank ? ` · ${a.bank}` : ""}
-                      </button>
-                      <div className="flex flex-wrap gap-2">
-                        {accCardList.map((c) => (
-                          <Pill
-                            key={c.id}
-                            on={cardFilter.includes(c.id)}
-                            onClick={() => setCardFilter((prev) => (prev.includes(c.id) ? prev.filter((x) => x !== c.id) : [...prev, c.id]))}
-                          >
-                            {c.name}{c.last4 ? ` ····${c.last4}` : ""}
-                          </Pill>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="flex items-center justify-between mt-4 mb-2">
-                <span className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>Categorías</span>
-                {catFilter.length > 0 && (
-                  <button onClick={() => setCatFilter([])} className="text-xs" style={{ color: C.accent }}>Limpiar</button>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {categories.map((c) => (
-                  <Pill
-                    key={c.id}
-                    on={catFilter.includes(c.id)}
-                    onClick={() => setCatFilter((prev) => (prev.includes(c.id) ? prev.filter((x) => x !== c.id) : [...prev, c.id]))}
-                  >
-                    {c.name}
-                  </Pill>
+              <ul className="space-y-1.5">
+                {selectedAccounts.map(({ acc, inicio, actual }) => (
+                  <li key={acc.id} className="flex items-center justify-between gap-3 text-sm">
+                    <span className="truncate" style={{ color: C.text }}>{acc.name}{acc.bank ? ` · ${acc.bank}` : ""}</span>
+                    <span className="font-mono text-xs shrink-0" style={{ fontVariantNumeric: "tabular-nums" }}>
+                      <span style={{ color: C.faint }}>{money(inicio)} → </span>
+                      <span style={{ color: actual < 0 ? C.red : C.text }}>{money(actual)}</span>
+                    </span>
+                  </li>
                 ))}
-              </div>
-
-              {activeFilters > 0 && (
-                <div className="mt-4 pt-3 flex items-center justify-between" style={{ borderTop: `1px solid ${C.borderSoft}` }}>
-                  <span className="text-xs" style={{ color: C.faint }}>{activeFilters} {activeFilters === 1 ? "filtro activo" : "filtros activos"}</span>
-                  <button onClick={() => { setCatFilter([]); setCardFilter([]); }} className="text-xs" style={{ color: C.muted }}>
-                    Limpiar todos
-                  </button>
-                </div>
-              )}
+              </ul>
+              <p className="text-xs mt-2" style={{ color: C.faint }}>
+                Saldo al inicio del mes → saldo actual. Abajo, sus movimientos (máx. 20; usa las etiquetas de arriba para ver más).
+              </p>
             </Card>
           )}
 
-          {periodo === "recientes" && byCard.length > 10 && (
-            <span className="text-xs" style={{ color: C.faint }}>Mostrando 10 de {byCard.length}</span>
+          {periodo === "recientes" && byAcc.length > (accFilter.length ? 20 : 10) && (
+            <span className="text-xs" style={{ color: C.faint }}>Mostrando {accFilter.length ? 20 : 10} de {byAcc.length}</span>
           )}
+        </div>
+      )}
+
+      {/* Modal de categorías (selección múltiple) */}
+      {catOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Filtrar por categoría">
+          <div className="absolute inset-0" style={{ background: "rgba(0,0,0,0.6)" }} onClick={() => setCatOpen(false)} aria-hidden="true" />
+          <div className="relative w-full max-w-md rounded-2xl flex flex-col overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.border}`, maxHeight: "80vh" }}>
+            <div className="flex items-center justify-between gap-3 p-4" style={{ borderBottom: `1px solid ${C.borderSoft}` }}>
+              <h3 className="text-sm uppercase tracking-widest" style={{ color: C.accent }}>Categorías</h3>
+              <div className="flex items-center gap-3">
+                {catFilter.length > 0 && <button onClick={() => setCatFilter([])} className="text-xs" style={{ color: C.accent }}>Limpiar</button>}
+                <button onClick={() => setCatOpen(false)} aria-label="Cerrar" className="rounded-full p-2 transition-opacity hover:opacity-85" style={{ border: `1px solid ${C.border}`, color: C.muted, lineHeight: 1 }}>✕</button>
+              </div>
+            </div>
+            <div className="p-4 overflow-y-auto">
+              {FREQS.map((f) => {
+                const list = categories.filter((c) => c.freq === f.id);
+                if (!list.length) return null;
+                return (
+                  <div key={f.id} className="mt-3 first:mt-0">
+                    <p className="text-xs uppercase tracking-wider mb-1.5" style={{ color: C.muted }}>{f.label}</p>
+                    <div className="grid grid-cols-1 gap-2">
+                      {list.map((c) => {
+                        const on = catFilter.includes(c.id);
+                        return (
+                          <button key={c.id} type="button"
+                            onClick={() => setCatFilter((prev) => (on ? prev.filter((x) => x !== c.id) : [...prev, c.id]))}
+                            className="w-full flex items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition-colors"
+                            style={on ? { background: C.accentSoft, border: `1px solid ${C.accent}`, color: C.accent, fontWeight: 600 } : { background: C.bg, border: `1px solid ${C.borderSoft}`, color: C.text }}>
+                            <span className="truncate">{c.name}</span>
+                            {on && <span aria-hidden="true">✓</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de cuentas (selección múltiple, con saldo actual) */}
+      {accOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Ver cuentas específicas">
+          <div className="absolute inset-0" style={{ background: "rgba(0,0,0,0.6)" }} onClick={() => setAccOpen(false)} aria-hidden="true" />
+          <div className="relative w-full max-w-md rounded-2xl flex flex-col overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.border}`, maxHeight: "80vh" }}>
+            <div className="flex items-center justify-between gap-3 p-4" style={{ borderBottom: `1px solid ${C.borderSoft}` }}>
+              <h3 className="text-sm uppercase tracking-widest" style={{ color: C.accent }}>Cuentas</h3>
+              <div className="flex items-center gap-3">
+                {accFilter.length > 0 && <button onClick={() => setAccFilter([])} className="text-xs" style={{ color: C.accent }}>Limpiar</button>}
+                <button onClick={() => setAccOpen(false)} aria-label="Cerrar" className="rounded-full p-2 transition-opacity hover:opacity-85" style={{ border: `1px solid ${C.border}`, color: C.muted, lineHeight: 1 }}>✕</button>
+              </div>
+            </div>
+            <div className="p-4 overflow-y-auto">
+              <div className="grid grid-cols-1 gap-2">
+                {accounts.map((a) => {
+                  const on = accFilter.includes(a.id);
+                  const saldo = accBalanceWith(a.id, movements);
+                  return (
+                    <button key={a.id} type="button"
+                      onClick={() => setAccFilter((prev) => (on ? prev.filter((x) => x !== a.id) : [...prev, a.id]))}
+                      className="w-full flex items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-colors"
+                      style={on ? { background: C.accentSoft, border: `1px solid ${C.accent}` } : { background: C.bg, border: `1px solid ${C.borderSoft}` }}>
+                      <div className="min-w-0">
+                        <p className="text-sm truncate" style={{ color: C.text, fontWeight: on ? 600 : 400 }}>{a.name}</p>
+                        {a.bank && <p className="text-xs truncate" style={{ color: C.faint }}>{a.bank}</p>}
+                      </div>
+                      <span className="font-mono text-xs shrink-0" style={{ color: saldo < 0 ? C.red : C.muted, fontVariantNumeric: "tabular-nums" }}>
+                        {money(saldo)}{on ? "  ✓" : ""}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1020,7 +1048,7 @@ export default function Movimientos({ data, update }) {
               const total = legs.reduce((s, l) => s + movTotal(l), 0);
               const cat = catById[rep.categoryId];
               return (
-                <Card key={row.splitId} className="flex items-start justify-between gap-3">
+                <Card key={row.splitId} className="flex items-start justify-between gap-3" style={{ borderLeft: `3px solid ${C.chartGasto}` }}>
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-medium truncate">{rep.title || rep.description || "Compra"}</span>
@@ -1056,13 +1084,15 @@ export default function Movimientos({ data, update }) {
             const isGasto = m.type === "gasto";
             const hasMSI = Number(m.months) > 1;
             const editable = !m.interest; // transferencias, ajustes e ingresos ya se pueden editar; los rendimientos no
+            // Contorno izquierdo por entrada/salida: transferencia azul, gasto rojo, ingreso verde
+            const edgeColor = m.transfer ? C.blue : isGasto ? C.chartGasto : C.chartIngreso;
             if (editId === m.id) {
               return m.transfer
                 ? <TransferEditor key={m.id} mov={m} data={data} onSave={saveTransfer} onCancel={() => setEditId(null)} />
                 : <MovEditor key={m.id} mov={m} data={data} onSave={saveEdit} onCancel={() => setEditId(null)} />;
             }
             return (
-              <Card key={m.id} className="flex items-center justify-between gap-3">
+              <Card key={m.id} className="flex items-center justify-between gap-3" style={{ borderLeft: `3px solid ${edgeColor}` }}>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-medium truncate">{m.title || m.description || (isGasto ? "Gasto" : "Ingreso")}</span>

@@ -139,6 +139,42 @@ export function CardPicker({ label, cards, accounts, movements, value, onChange,
     </svg>
   );
 
+  // Una tarjeta como opción tocable (dentro del grupo de su cuenta)
+  const tile = (c) => {
+    const on = value === c.id;
+    const bal = balanceOfCard(c, movements);
+    const owes = isDebtType(c.type); // crédito/deuda: el saldo es lo que se debe
+    return (
+      <button
+        key={c.id}
+        type="button"
+        onClick={() => { onChange(c.id); setOpen(false); }}
+        className="w-full flex items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-colors"
+        style={on
+          ? { background: C.accentSoft, border: `1px solid ${C.accent}` }
+          : { background: C.bg, border: `1px solid ${C.borderSoft}` }}
+      >
+        <div className="min-w-0">
+          <p className="text-sm truncate" style={{ color: C.text, fontWeight: on ? 600 : 400 }}>
+            {c.name}{c.last4 ? ` ····${c.last4}` : ""}
+          </p>
+          <p className="text-xs truncate" style={{ color: C.faint }}>{cardTypeLabel(c.type)}</p>
+        </div>
+        <span className="font-mono text-xs shrink-0" style={{ color: owes ? C.amber : bal < 0 ? C.red : C.muted, fontVariantNumeric: "tabular-nums" }}>
+          {owes ? `debe ${money(bal)}` : money(bal)}
+        </span>
+      </button>
+    );
+  };
+
+  // Agrupa las tarjetas por su cuenta (en el orden de `accounts`), con un
+  // encabezado que muestra el nombre de la cuenta y su banco si lo tiene.
+  const groups = accounts
+    .filter((a) => cards.some((c) => c.accountId === a.id))
+    .map((a) => ({ acc: a, cards: cards.filter((c) => c.accountId === a.id) }));
+  const orphans = cards.filter((c) => !accounts.some((a) => a.id === c.accountId));
+  if (orphans.length) groups.push({ acc: null, cards: orphans });
+
   return (
     <div>
       {label && <span className="block text-xs uppercase tracking-wider mb-1" style={{ color: C.muted }}>{label}</span>}
@@ -170,36 +206,16 @@ export function CardPicker({ label, cards, accounts, movements, value, onChange,
               {cards.length === 0 ? (
                 <p className="text-xs" style={{ color: C.faint }}>{empty || "No hay cuentas disponibles."}</p>
               ) : (
-                <div className="grid grid-cols-1 gap-2">
-                  {cards.map((c) => {
-                    const on = value === c.id;
-                    const bal = balanceOfCard(c, movements);
-                    const owes = isDebtType(c.type); // crédito/deuda: el saldo es lo que se debe
-                    return (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => { onChange(c.id); setOpen(false); }}
-                        className="flex items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-colors"
-                        style={on
-                          ? { background: C.accentSoft, border: `1px solid ${C.accent}` }
-                          : { background: C.bg, border: `1px solid ${C.borderSoft}` }}
-                      >
-                        <div className="min-w-0">
-                          <p className="text-sm truncate" style={{ color: C.text, fontWeight: on ? 600 : 400 }}>
-                            {c.name}{c.last4 ? ` ····${c.last4}` : ""}
-                          </p>
-                          <p className="text-xs truncate" style={{ color: C.faint }}>
-                            {accName(c.accountId)} · {cardTypeLabel(c.type)}
-                          </p>
-                        </div>
-                        <span className="font-mono text-xs shrink-0" style={{ color: owes ? C.amber : bal < 0 ? C.red : C.muted, fontVariantNumeric: "tabular-nums" }}>
-                          {owes ? `debe ${money(bal)}` : money(bal)}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+                groups.map(({ acc, cards: grpCards }) => (
+                  <div key={acc ? acc.id : "_otras"} className="mt-3 first:mt-0">
+                    <p className="text-xs uppercase tracking-wider mb-1.5" style={{ color: C.muted }}>
+                      {acc ? `${acc.name}${acc.bank ? ` · ${acc.bank}` : ""}` : "Otras"}
+                    </p>
+                    <div className="grid grid-cols-1 gap-2">
+                      {grpCards.map((c) => tile(c))}
+                    </div>
+                  </div>
+                ))
               )}
             </div>
           </div>
