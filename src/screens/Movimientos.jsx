@@ -501,8 +501,9 @@ export default function Movimientos({ data, update }) {
   const [periodo, setPeriodo] = useState("recientes");
   const [catFilter, setCatFilter] = useState([]); // categorías seleccionadas (vacío = todas)
   const [accFilter, setAccFilter] = useState([]); // cuentas seleccionadas (vacío = todas)
+  const [cardFilter, setCardFilter] = useState([]); // tarjetas sueltas seleccionadas
   const [catOpen, setCatOpen] = useState(false); // modal de categorías
-  const [accOpen, setAccOpen] = useState(false); // modal de cuentas
+  const [accOpen, setAccOpen] = useState(false); // modal de cuentas/tarjetas
   const [categoryId, setCategoryId] = useState("");
   const [date, setDate] = useState(todayISO());
   const [aMeses, setAMeses] = useState(false);
@@ -651,21 +652,30 @@ export default function Movimientos({ data, update }) {
 
   const sorted = [...movements].sort((a, b) => (a.date < b.date ? 1 : -1));
   const byCat = catFilter.length ? sorted.filter((m) => catFilter.includes(m.categoryId)) : sorted;
-  const byAcc = accFilter.length ? byCat.filter((m) => accFilter.includes(cardById[m.cardId]?.accountId)) : byCat;
-  // Al ver cuentas específicas se muestran hasta 20 recientes (las etiquetas de arriba amplían)
-  const visibles = filterByPeriodo(byAcc, periodo, accFilter.length ? 20 : 10);
-  const activeFilters = catFilter.length + accFilter.length;
+  // Filtro por cuenta (toda) o por tarjeta suelta: pasa si coincide con cualquiera
+  const selActive = accFilter.length > 0 || cardFilter.length > 0;
+  const byAcc = selActive
+    ? byCat.filter((m) => accFilter.includes(cardById[m.cardId]?.accountId) || cardFilter.includes(m.cardId))
+    : byCat;
+  // Al ver cuentas/tarjetas específicas se muestran hasta 20 recientes (las etiquetas de arriba amplían)
+  const visibles = filterByPeriodo(byAcc, periodo, selActive ? 20 : 10);
+  const activeFilters = catFilter.length + accFilter.length + cardFilter.length;
 
-  // Resumen de las cuentas seleccionadas: saldo al inicio del mes y saldo actual
+  // Resumen de lo seleccionado: saldo al inicio del mes y saldo actual
   const monthStart = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-01`;
   const movsBeforeMonth = movements.filter((m) => m.date < monthStart);
+  const cardBalanceWith = (c, movs) => (isDebtType(c.type) ? -balanceOfCard(c, movs) : balanceOfCard(c, movs));
   const accBalanceWith = (accId, movs) => cards
     .filter((c) => c.accountId === accId)
-    .reduce((s, c) => s + (isDebtType(c.type) ? -balanceOfCard(c, movs) : balanceOfCard(c, movs)), 0);
+    .reduce((s, c) => s + cardBalanceWith(c, movs), 0);
   const selectedAccounts = accFilter
     .map((id) => accounts.find((a) => a.id === id))
     .filter(Boolean)
     .map((a) => ({ acc: a, inicio: accBalanceWith(a.id, movsBeforeMonth), actual: accBalanceWith(a.id, movements) }));
+  const selectedCards = cardFilter
+    .map((id) => cardById[id])
+    .filter(Boolean)
+    .map((c) => ({ card: c, inicio: cardBalanceWith(c, movsBeforeMonth), actual: cardBalanceWith(c, movements) }));
 
   // Agrupa las patas de un pago dividido (mismo splitId) en una sola fila de la lista
   const visibleRows = [];
@@ -914,25 +924,32 @@ export default function Movimientos({ data, update }) {
               <Btn kind={catFilter.length ? "primary" : "ghost"} size="sm" onClick={() => setCatOpen(true)}>
                 Categorías{catFilter.length ? ` · ${catFilter.length}` : ""}
               </Btn>
-              <Btn kind={accFilter.length ? "primary" : "ghost"} size="sm" onClick={() => setAccOpen(true)}>
-                Cuentas{accFilter.length ? ` · ${accFilter.length}` : ""}
+              <Btn kind={accFilter.length + cardFilter.length ? "primary" : "ghost"} size="sm" onClick={() => setAccOpen(true)}>
+                Cuentas{accFilter.length + cardFilter.length ? ` · ${accFilter.length + cardFilter.length}` : ""}
               </Btn>
             </div>
           </div>
 
-          {/* Resumen de las cuentas seleccionadas: saldo al inicio del mes → actual */}
-          {selectedAccounts.length > 0 && (
+          {/* Resumen de lo seleccionado: saldo al inicio del mes → actual */}
+          {(selectedAccounts.length > 0 || selectedCards.length > 0) && (
             <Card style={{ paddingTop: 12, paddingBottom: 12 }}>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>
-                  {selectedAccounts.length === 1 ? "Cuenta seleccionada" : `${selectedAccounts.length} cuentas seleccionadas`}
-                </span>
-                <button onClick={() => setAccFilter([])} className="text-xs" style={{ color: C.accent }}>Quitar</button>
+                <span className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>Seleccionado</span>
+                <button onClick={() => { setAccFilter([]); setCardFilter([]); }} className="text-xs" style={{ color: C.accent }}>Quitar</button>
               </div>
               <ul className="space-y-1.5">
                 {selectedAccounts.map(({ acc, inicio, actual }) => (
                   <li key={acc.id} className="flex items-center justify-between gap-3 text-sm">
                     <span className="truncate" style={{ color: C.text }}>{acc.name}{acc.bank ? ` · ${acc.bank}` : ""}</span>
+                    <span className="font-mono text-xs shrink-0" style={{ fontVariantNumeric: "tabular-nums" }}>
+                      <span style={{ color: C.faint }}>{money(inicio)} → </span>
+                      <span style={{ color: actual < 0 ? C.red : C.text }}>{money(actual)}</span>
+                    </span>
+                  </li>
+                ))}
+                {selectedCards.map(({ card, inicio, actual }) => (
+                  <li key={card.id} className="flex items-center justify-between gap-3 text-sm">
+                    <span className="truncate" style={{ color: C.text }}>{card.name}{card.last4 ? ` ····${card.last4}` : ""}</span>
                     <span className="font-mono text-xs shrink-0" style={{ fontVariantNumeric: "tabular-nums" }}>
                       <span style={{ color: C.faint }}>{money(inicio)} → </span>
                       <span style={{ color: actual < 0 ? C.red : C.text }}>{money(actual)}</span>
@@ -946,8 +963,8 @@ export default function Movimientos({ data, update }) {
             </Card>
           )}
 
-          {periodo === "recientes" && byAcc.length > (accFilter.length ? 20 : 10) && (
-            <span className="text-xs" style={{ color: C.faint }}>Mostrando {accFilter.length ? 20 : 10} de {byAcc.length}</span>
+          {periodo === "recientes" && byAcc.length > (selActive ? 20 : 10) && (
+            <span className="text-xs" style={{ color: C.faint }}>Mostrando {selActive ? 20 : 10} de {byAcc.length}</span>
           )}
         </div>
       )}
@@ -993,39 +1010,63 @@ export default function Movimientos({ data, update }) {
         </div>
       )}
 
-      {/* Modal de cuentas (selección múltiple, con saldo actual) */}
+      {/* Modal de cuentas/tarjetas (selección múltiple: cuenta completa o tarjeta suelta) */}
       {accOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Ver cuentas específicas">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Ver cuentas o tarjetas">
           <div className="absolute inset-0" style={{ background: "rgba(0,0,0,0.6)" }} onClick={() => setAccOpen(false)} aria-hidden="true" />
           <div className="relative w-full max-w-md rounded-2xl flex flex-col overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.border}`, maxHeight: "80vh" }}>
             <div className="flex items-center justify-between gap-3 p-4" style={{ borderBottom: `1px solid ${C.borderSoft}` }}>
-              <h3 className="text-sm uppercase tracking-widest" style={{ color: C.accent }}>Cuentas</h3>
+              <h3 className="text-sm uppercase tracking-widest" style={{ color: C.accent }}>Cuentas y tarjetas</h3>
               <div className="flex items-center gap-3">
-                {accFilter.length > 0 && <button onClick={() => setAccFilter([])} className="text-xs" style={{ color: C.accent }}>Limpiar</button>}
+                {(accFilter.length + cardFilter.length) > 0 && <button onClick={() => { setAccFilter([]); setCardFilter([]); }} className="text-xs" style={{ color: C.accent }}>Limpiar</button>}
                 <button onClick={() => setAccOpen(false)} aria-label="Cerrar" className="rounded-full p-2 transition-opacity hover:opacity-85" style={{ border: `1px solid ${C.border}`, color: C.muted, lineHeight: 1 }}>✕</button>
               </div>
             </div>
             <div className="p-4 overflow-y-auto">
-              <div className="grid grid-cols-1 gap-2">
-                {accounts.map((a) => {
-                  const on = accFilter.includes(a.id);
-                  const saldo = accBalanceWith(a.id, movements);
-                  return (
-                    <button key={a.id} type="button"
-                      onClick={() => setAccFilter((prev) => (on ? prev.filter((x) => x !== a.id) : [...prev, a.id]))}
+              <p className="text-xs mb-3" style={{ color: C.faint }}>Elige una cuenta completa, o toca una tarjeta para ver solo esa.</p>
+              {accounts.map((a) => {
+                const accOn = accFilter.includes(a.id);
+                const saldo = accBalanceWith(a.id, movements);
+                const accCardsList = cards.filter((c) => c.accountId === a.id);
+                return (
+                  <div key={a.id} className="mt-3 first:mt-0">
+                    {/* Cuenta completa */}
+                    <button type="button"
+                      onClick={() => setAccFilter((prev) => (accOn ? prev.filter((x) => x !== a.id) : [...prev, a.id]))}
                       className="w-full flex items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-colors"
-                      style={on ? { background: C.accentSoft, border: `1px solid ${C.accent}` } : { background: C.bg, border: `1px solid ${C.borderSoft}` }}>
+                      style={accOn ? { background: C.accentSoft, border: `1px solid ${C.accent}` } : { background: C.bg, border: `1px solid ${C.borderSoft}` }}>
                       <div className="min-w-0">
-                        <p className="text-sm truncate" style={{ color: C.text, fontWeight: on ? 600 : 400 }}>{a.name}</p>
-                        {a.bank && <p className="text-xs truncate" style={{ color: C.faint }}>{a.bank}</p>}
+                        <p className="text-sm truncate" style={{ color: C.text, fontWeight: accOn ? 600 : 400 }}>{a.name}{a.bank ? ` · ${a.bank}` : ""}</p>
+                        <p className="text-xs truncate" style={{ color: C.faint }}>Cuenta completa</p>
                       </div>
                       <span className="font-mono text-xs shrink-0" style={{ color: saldo < 0 ? C.red : C.muted, fontVariantNumeric: "tabular-nums" }}>
-                        {money(saldo)}{on ? "  ✓" : ""}
+                        {money(saldo)}{accOn ? "  ✓" : ""}
                       </span>
                     </button>
-                  );
-                })}
-              </div>
+                    {/* Tarjetas sueltas de la cuenta */}
+                    {accCardsList.length > 0 && (
+                      <div className="mt-2 pl-3 space-y-2" style={{ borderLeft: `2px solid ${C.borderSoft}` }}>
+                        {accCardsList.map((c) => {
+                          const cOn = cardFilter.includes(c.id);
+                          return (
+                            <button key={c.id} type="button"
+                              onClick={() => setCardFilter((prev) => (cOn ? prev.filter((x) => x !== c.id) : [...prev, c.id]))}
+                              className="w-full flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-left transition-colors"
+                              style={cOn ? { background: C.accentSoft, border: `1px solid ${C.accent}` } : { background: C.bg, border: `1px solid ${C.borderSoft}` }}>
+                              <span className="text-sm truncate" style={{ color: C.text, fontWeight: cOn ? 600 : 400 }}>
+                                {c.name}{c.last4 ? ` ····${c.last4}` : ""} · {cardTypeLabel(c.type)}
+                              </span>
+                              <span className="font-mono text-xs shrink-0" style={{ color: C.faint, fontVariantNumeric: "tabular-nums" }}>
+                                {money(cardBalanceWith(c, movements))}{cOn ? "  ✓" : ""}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
