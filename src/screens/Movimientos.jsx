@@ -253,8 +253,11 @@ function MovEditor({ mov, data, onSave, onCancel }) {
   const [amount, setAmount] = useState(String(mov.amount));
   const [date, setDate] = useState(mov.date);
   const [categoryId, setCategoryId] = useState(mov.categoryId || "");
+  const movIsPreset = Number(mov.months) > 1 && MESES_OPCIONES.includes(Number(mov.months));
   const [aMeses, setAMeses] = useState(Number(mov.months) > 1);
-  const [months, setMonths] = useState(Number(mov.months) > 1 ? Number(mov.months) : 3);
+  const [months, setMonths] = useState(movIsPreset ? Number(mov.months) : 3);
+  const [otroMeses, setOtroMeses] = useState(Number(mov.months) > 1 && !movIsPreset);
+  const [customM, setCustomM] = useState(Number(mov.months) > 1 && !movIsPreset ? String(mov.months) : "");
   const [commission, setCommission] = useState(Number(mov.commission) > 0 ? String(mov.commission) : "");
   const [error, setError] = useState("");
   const accCards = cards.filter((c) => c.accountId === accountId);
@@ -262,6 +265,7 @@ function MovEditor({ mov, data, onSave, onCancel }) {
   const isCashAccount = cashCardId(accountId, accounts, cards) !== null;
   const isAdjust = !!mov.adjust; // los ajustes de saldo no llevan categoría ni MSI
   const isCreditExpense = !isAdjust && type === "gasto" && selectedCard?.type === "credito";
+  const effMonths = otroMeses ? (parseInt(customM, 10) || 0) : months;
 
   const save = () => {
     const amt = parseFloat(amount);
@@ -269,6 +273,7 @@ function MovEditor({ mov, data, onSave, onCancel }) {
     if (!cardId) return setError("Elige la cuenta y la tarjeta.");
     if (!amt || amt <= 0) return setError("Escribe un monto mayor a cero.");
     if (!isAdjust && !categoryId) return setError("Elige una categoría.");
+    if (isCreditExpense && aMeses && effMonths < 2) return setError("Escribe a cuántos meses (2 o más).");
     onSave({
       ...mov,
       cardId,
@@ -278,7 +283,7 @@ function MovEditor({ mov, data, onSave, onCancel }) {
       amount: amt,
       date,
       categoryId: isAdjust ? null : categoryId,
-      months: isCreditExpense && aMeses ? Number(months) : 1,
+      months: isCreditExpense && aMeses ? Number(effMonths) : 1,
       commission: isCreditExpense && aMeses ? (parseFloat(commission) || 0) : 0,
     });
   };
@@ -350,9 +355,24 @@ function MovEditor({ mov, data, onSave, onCancel }) {
           {aMeses && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
               <Field label="Número de meses">
-                <Select value={months} onChange={(e) => setMonths(Number(e.target.value))}>
+                <Select
+                  value={otroMeses ? "otro" : String(months)}
+                  onChange={(e) => {
+                    if (e.target.value === "otro") setOtroMeses(true);
+                    else { setOtroMeses(false); setMonths(Number(e.target.value)); }
+                  }}
+                >
                   {MESES_OPCIONES.map((m) => <option key={m} value={m}>{m} meses</option>)}
+                  <option value="otro">Otro…</option>
                 </Select>
+                {otroMeses && (
+                  <TextInput
+                    type="number" min="2" step="1" value={customM}
+                    onChange={(e) => setCustomM(e.target.value)}
+                    placeholder="Meses (ej. 15)"
+                    style={{ marginTop: 8 }}
+                  />
+                )}
               </Field>
               <Field label="Comisión (MXN, opcional)">
                 <TextInput type="number" min="0" step="0.01" value={commission} onChange={(e) => setCommission(e.target.value)} />
@@ -488,6 +508,8 @@ export default function Movimientos({ data, update }) {
   const [date, setDate] = useState(todayISO());
   const [aMeses, setAMeses] = useState(false);
   const [months, setMonths] = useState(3);
+  const [otroMeses, setOtroMeses] = useState(false); // meses personalizados ("Otro…")
+  const [customM, setCustomM] = useState("");
   const [commission, setCommission] = useState("");
   const [error, setError] = useState("");
   // Pago dividido: una compra pagada con varios medios; cada fila es { cuenta, tarjeta, monto }
@@ -500,6 +522,8 @@ export default function Movimientos({ data, update }) {
   const toAccCards = cards.filter((c) => c.accountId === toAccountId);
   const selectedCard = cards.find((c) => c.id === cardId);
   const isCreditExpense = type === "gasto" && !splitMode && selectedCard?.type === "credito";
+  // Meses efectivos (preset o personalizado)
+  const effMonths = otroMeses ? (parseInt(customM, 10) || 0) : months;
   // Efectivo: cuenta con una sola cartera; se autoselecciona y se oculta el selector de tarjeta
   const isCashAccount = cashCardId(accountId, accounts, cards) !== null;
   const isToCashAccount = cashCardId(toAccountId, accounts, cards) !== null;
@@ -515,7 +539,7 @@ export default function Movimientos({ data, update }) {
 
   const resetForm = () => {
     setType("gasto"); setAccountId(""); setCardId(""); setToAccountId(""); setToCardId(""); setAmount(""); setTitle(""); setDescription("");
-    setCategoryId(""); setDate(todayISO()); setAMeses(false); setMonths(3); setCommission(""); setError("");
+    setCategoryId(""); setDate(todayISO()); setAMeses(false); setMonths(3); setOtroMeses(false); setCustomM(""); setCommission(""); setError("");
     setSplitMode(false); setSplitRows([{ accountId: "", cardId: "", amount: "" }, { accountId: "", cardId: "", amount: "" }]);
   };
 
@@ -580,6 +604,7 @@ export default function Movimientos({ data, update }) {
       const over = cashOverdraft(cards.find((c) => c.id === cardId), movements, amt);
       if (over > 0) return setError(cashOverdraftMsg(over));
     }
+    if (isCreditExpense && aMeses && effMonths < 2) return setError("Escribe a cuántos meses (2 o más).");
     const mov = {
       id: uid(),
       cardId,
@@ -589,7 +614,7 @@ export default function Movimientos({ data, update }) {
       description: description.trim(),
       categoryId,
       date,
-      months: isCreditExpense && aMeses ? Number(months) : 1,
+      months: isCreditExpense && aMeses ? Number(effMonths) : 1,
       commission: isCreditExpense && aMeses ? (parseFloat(commission) || 0) : 0,
     };
     update({ movements: [mov, ...movements] });
@@ -645,7 +670,7 @@ export default function Movimientos({ data, update }) {
   }
 
   const totalConComision = (parseFloat(amount) || 0) + (parseFloat(commission) || 0);
-  const mensualidad = aMeses && months > 0 ? totalConComision / months : 0;
+  const mensualidad = aMeses && effMonths > 0 ? totalConComision / effMonths : 0;
 
   return (
     <div className="space-y-4">
@@ -825,9 +850,24 @@ export default function Movimientos({ data, update }) {
               {aMeses && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
                   <Field label="Número de meses">
-                    <Select value={months} onChange={(e) => setMonths(Number(e.target.value))}>
+                    <Select
+                      value={otroMeses ? "otro" : String(months)}
+                      onChange={(e) => {
+                        if (e.target.value === "otro") setOtroMeses(true);
+                        else { setOtroMeses(false); setMonths(Number(e.target.value)); }
+                      }}
+                    >
                       {MESES_OPCIONES.map((m) => <option key={m} value={m}>{m} meses</option>)}
+                      <option value="otro">Otro…</option>
                     </Select>
+                    {otroMeses && (
+                      <TextInput
+                        type="number" min="2" step="1" value={customM}
+                        onChange={(e) => setCustomM(e.target.value)}
+                        placeholder="Meses (ej. 15)"
+                        style={{ marginTop: 8 }}
+                      />
+                    )}
                   </Field>
                   <Field label="Comisión (MXN, opcional)">
                     <TextInput type="number" min="0" step="0.01" value={commission} onChange={(e) => setCommission(e.target.value)} placeholder="0.00" />

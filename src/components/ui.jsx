@@ -1,6 +1,6 @@
 // Primitivas de UI de la app. Reutiliza estas en lugar de escribir
 // <input>/<button> con estilos sueltos: todas leen sus colores de useTheme().
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTheme } from "../theme";
 import { money } from "../utils/format";
 import { balanceOfCard, isDebtType, cardTypeLabel } from "../lib/finance";
@@ -115,47 +115,94 @@ export function Select({ children, ...props }) {
   );
 }
 
-// Selector de cuenta/tarjeta en forma de tarjetas tocables (muestra el saldo).
-// Reemplaza el par "Cuenta + Tarjeta" por una sola lista; al elegir una tarjeta,
-// su cuenta queda implícita. `cards` ya viene filtrada por quien lo usa.
-export function CardPicker({ label, cards, accounts, movements, value, onChange, empty }) {
+// Selector de cuenta/tarjeta: muestra un campo "Seleccionar cuenta" y, al tocarlo,
+// abre un modal con las tarjetas (con su saldo). Al elegir una se cierra; para
+// cambiarla se vuelve a tocar. `cards` ya viene filtrada por quien lo usa.
+export function CardPicker({ label, cards, accounts, movements, value, onChange, empty, placeholder }) {
   const C = useTheme();
+  const base = useInputStyle();
+  const [open, setOpen] = useState(false);
   const accName = (id) => accounts.find((a) => a.id === id)?.name || "";
+  const selected = cards.find((c) => c.id === value) || null;
+
+  // Bloquea el scroll del fondo mientras el modal está abierto
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [open]);
+
+  const Chevron = () => (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke={C.muted} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden="true">
+      <path d="M3 4.5 6 7.5 9 4.5" />
+    </svg>
+  );
+
   return (
     <div>
-      {label && <span className="block text-xs uppercase tracking-wider mb-1.5" style={{ color: C.muted }}>{label}</span>}
-      {cards.length === 0 ? (
-        <p className="text-xs" style={{ color: C.faint }}>{empty || "No hay cuentas disponibles."}</p>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {cards.map((c) => {
-            const on = value === c.id;
-            const bal = balanceOfCard(c, movements);
-            const owes = isDebtType(c.type); // crédito/deuda: el saldo es lo que se debe
-            return (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => onChange(c.id)}
-                className="flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-left transition-colors"
-                style={on
-                  ? { background: C.accentSoft, border: `1px solid ${C.accent}` }
-                  : { background: C.bg, border: `1px solid ${C.borderSoft}` }}
-              >
-                <div className="min-w-0">
-                  <p className="text-sm truncate" style={{ color: C.text, fontWeight: on ? 600 : 400 }}>
-                    {c.name}{c.last4 ? ` ····${c.last4}` : ""}
-                  </p>
-                  <p className="text-xs truncate" style={{ color: C.faint }}>
-                    {accName(c.accountId)} · {cardTypeLabel(c.type)}
-                  </p>
+      {label && <span className="block text-xs uppercase tracking-wider mb-1" style={{ color: C.muted }}>{label}</span>}
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        style={{ ...base, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, textAlign: "left" }}
+      >
+        {selected ? (
+          <span className="truncate" style={{ color: C.text }}>
+            {selected.name}{selected.last4 ? ` ····${selected.last4}` : ""}
+            <span style={{ color: C.faint }}> · {accName(selected.accountId)}</span>
+          </span>
+        ) : (
+          <span className="truncate" style={{ color: C.faint }}>{placeholder || "Seleccionar cuenta"}</span>
+        )}
+        <Chevron />
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={label || "Elegir cuenta"}>
+          <div className="absolute inset-0" style={{ background: "rgba(0,0,0,0.6)" }} onClick={() => setOpen(false)} aria-hidden="true" />
+          <div className="relative w-full max-w-md rounded-2xl flex flex-col overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.border}`, maxHeight: "80vh" }}>
+            <div className="flex items-center justify-between gap-3 p-4" style={{ borderBottom: `1px solid ${C.borderSoft}` }}>
+              <h3 className="text-sm uppercase tracking-widest" style={{ color: C.accent }}>{label || "Elegir cuenta"}</h3>
+              <button onClick={() => setOpen(false)} aria-label="Cerrar" className="rounded-full p-2 transition-opacity hover:opacity-85" style={{ border: `1px solid ${C.border}`, color: C.muted, lineHeight: 1 }}>✕</button>
+            </div>
+            <div className="p-4 overflow-y-auto">
+              {cards.length === 0 ? (
+                <p className="text-xs" style={{ color: C.faint }}>{empty || "No hay cuentas disponibles."}</p>
+              ) : (
+                <div className="grid grid-cols-1 gap-2">
+                  {cards.map((c) => {
+                    const on = value === c.id;
+                    const bal = balanceOfCard(c, movements);
+                    const owes = isDebtType(c.type); // crédito/deuda: el saldo es lo que se debe
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => { onChange(c.id); setOpen(false); }}
+                        className="flex items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left transition-colors"
+                        style={on
+                          ? { background: C.accentSoft, border: `1px solid ${C.accent}` }
+                          : { background: C.bg, border: `1px solid ${C.borderSoft}` }}
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm truncate" style={{ color: C.text, fontWeight: on ? 600 : 400 }}>
+                            {c.name}{c.last4 ? ` ····${c.last4}` : ""}
+                          </p>
+                          <p className="text-xs truncate" style={{ color: C.faint }}>
+                            {accName(c.accountId)} · {cardTypeLabel(c.type)}
+                          </p>
+                        </div>
+                        <span className="font-mono text-xs shrink-0" style={{ color: owes ? C.amber : bal < 0 ? C.red : C.muted, fontVariantNumeric: "tabular-nums" }}>
+                          {owes ? `debe ${money(bal)}` : money(bal)}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
-                <span className="font-mono text-xs shrink-0" style={{ color: owes ? C.amber : bal < 0 ? C.red : C.muted, fontVariantNumeric: "tabular-nums" }}>
-                  {owes ? `debe ${money(bal)}` : money(bal)}
-                </span>
-              </button>
-            );
-          })}
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
