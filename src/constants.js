@@ -37,6 +37,7 @@ export const seedCategories = [
   { id: "cat-ingresos", name: "Ingresos", freq: "mensual" },
 ];
 
+
 export const SUPPORT_EMAIL = "yukioyoko14@gmail.com";
 
 // Forma del estado global de la app
