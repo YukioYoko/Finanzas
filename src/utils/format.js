@@ -8,6 +8,12 @@ export const uid = () => Date.now().toString(36) + Math.random().toString(36).sl
 
 export const todayISO = () => new Date().toISOString().slice(0, 10);
 
+// Hora local actual en formato 24h "HH:MM"
+export const nowHM = () => {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+};
+
 // Date → "YYYY-MM-DD" en hora local (sin el corrimiento UTC de toISOString)
 export const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 

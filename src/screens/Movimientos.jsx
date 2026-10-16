@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useTheme } from "../theme";
 import { FREQS, MESES_OPCIONES } from "../constants";
-import { money, uid, todayISO, isoOf } from "../utils/format";
+import { money, uid, todayISO, isoOf, nowHM } from "../utils/format";
 import { cardLabel, movTotal, cardTypeLabel, balanceOfCard, cashOverdraft, isDebtType } from "../lib/finance";
 import { Field, TextInput, Select, Btn, Chip, Amount, Card, SectionTitle, Empty, Pill, CardPicker, OptionPicker } from "../components/ui";
 
@@ -65,6 +65,7 @@ function InboxItem({ item, data, onConfirm, onDiscard }) {
   const [toCardId, setToCardId] = useState("");
   const [amount, setAmount] = useState(String(item.amount));
   const [date, setDate] = useState(item.date);
+  const [time, setTime] = useState(item.time || nowHM());
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -84,7 +85,7 @@ function InboxItem({ item, data, onConfirm, onDiscard }) {
       if (cardId === toCardId) return setError("El origen y el destino deben ser distintos.");
       const over = cashOverdraft(cards.find((c) => c.id === cardId), data.movements, amt);
       if (over > 0) return setError(cashOverdraftMsg(over));
-      return onConfirm(item, { transfer: true, fromCard: cardId, toCard: toCardId, amount: amt, date, title: title.trim() });
+      return onConfirm(item, { transfer: true, fromCard: cardId, toCard: toCardId, amount: amt, date, time, title: title.trim() });
     }
     if (!title.trim()) return setError("Escribe un título (ej. el comercio).");
     if (!cardId) return setError("Elige la cuenta y la tarjeta.");
@@ -93,7 +94,7 @@ function InboxItem({ item, data, onConfirm, onDiscard }) {
       const over = cashOverdraft(cards.find((c) => c.id === cardId), data.movements, amt);
       if (over > 0) return setError(cashOverdraftMsg(over));
     }
-    onConfirm(item, { cardId, type, amount: amt, date, title: title.trim(), description: description.trim(), categoryId });
+    onConfirm(item, { cardId, type, amount: amt, date, time, title: title.trim(), description: description.trim(), categoryId });
   };
 
   return (
@@ -142,8 +143,11 @@ function InboxItem({ item, data, onConfirm, onDiscard }) {
         <Field label="Monto (MXN)">
           <TextInput type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
         </Field>
-        <Field label="Fecha">
-          <TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        <Field label="Fecha y hora">
+          <div className="flex gap-2">
+            <TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            <TextInput type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ width: 110 }} />
+          </div>
         </Field>
         {!isTransfer && (
           <OptionPicker
@@ -190,6 +194,7 @@ function InboxTransferItem({ item, data, onConfirm, onDiscard }) {
   const [toCard, setToCard] = useState(item.toCardId || "");
   const [amount, setAmount] = useState(String(item.amount));
   const [date, setDate] = useState(item.date);
+  const [time, setTime] = useState(item.time || nowHM());
   const [title, setTitle] = useState("");
   const [error, setError] = useState("");
   const fromCards = cards.filter((c) => c.accountId === fromAcc);
@@ -203,7 +208,7 @@ function InboxTransferItem({ item, data, onConfirm, onDiscard }) {
     if (!toCard) return setError("Elige la cuenta y tarjeta de destino.");
     if (fromCard === toCard) return setError("El origen y el destino deben ser distintos.");
     if (!amt || amt <= 0) return setError("Escribe un monto mayor a cero.");
-    onConfirm(item, { transfer: true, fromCard, toCard, amount: amt, date, title: title.trim() });
+    onConfirm(item, { transfer: true, fromCard, toCard, amount: amt, date, time, title: title.trim() });
   };
 
   return (
@@ -226,8 +231,11 @@ function InboxTransferItem({ item, data, onConfirm, onDiscard }) {
         <Field label="Monto (MXN)">
           <TextInput type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
         </Field>
-        <Field label="Fecha">
-          <TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        <Field label="Fecha y hora">
+          <div className="flex gap-2">
+            <TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            <TextInput type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ width: 110 }} />
+          </div>
         </Field>
         <div className="sm:col-span-2">
           <Field label="Título (opcional)">
@@ -255,6 +263,7 @@ function MovEditor({ mov, data, onSave, onCancel }) {
   const [description, setDescription] = useState(mov.title ? (mov.description || "") : "");
   const [amount, setAmount] = useState(String(mov.amount));
   const [date, setDate] = useState(mov.date);
+  const [time, setTime] = useState(mov.time || "00:00");
   const [categoryId, setCategoryId] = useState(mov.categoryId || "");
   const movIsPreset = Number(mov.months) > 1 && MESES_OPCIONES.includes(Number(mov.months));
   const [aMeses, setAMeses] = useState(Number(mov.months) > 1);
@@ -285,6 +294,7 @@ function MovEditor({ mov, data, onSave, onCancel }) {
       description: description.trim(),
       amount: amt,
       date,
+      time,
       categoryId: isAdjust ? null : categoryId,
       months: isCreditExpense && aMeses ? Number(effMonths) : 1,
       commission: isCreditExpense && aMeses ? (parseFloat(commission) || 0) : 0,
@@ -310,8 +320,11 @@ function MovEditor({ mov, data, onSave, onCancel }) {
           onChange={setType}
           options={[{ value: "gasto", label: "Gasto" }, { value: "ingreso", label: "Ingreso" }]}
         />
-        <Field label="Fecha">
-          <TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        <Field label="Fecha y hora">
+          <div className="flex gap-2">
+            <TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            <TextInput type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ width: 120 }} />
+          </div>
         </Field>
         <div className="sm:col-span-2">
           <CardPicker
@@ -402,6 +415,7 @@ function TransferEditor({ mov, data, onSave, onCancel }) {
   const [toCard, setToCard] = useState(ingresoLeg?.cardId || "");
   const [amount, setAmount] = useState(String(gastoLeg?.amount ?? mov.amount));
   const [date, setDate] = useState(mov.date);
+  const [time, setTime] = useState(mov.time || "00:00");
   // Si el título es el automático ("Transferencia a/desde …") lo dejamos vacío para regenerarlo
   const custom = mov.title && !/^Transferencia (a|desde) /.test(mov.title) ? mov.title : "";
   const [title, setTitle] = useState(custom);
@@ -418,7 +432,7 @@ function TransferEditor({ mov, data, onSave, onCancel }) {
     if (!toCard) return setError("Elige la cuenta y tarjeta de destino.");
     if (fromCard === toCard) return setError("El origen y el destino deben ser distintos.");
     if (!amt || amt <= 0) return setError("Escribe un monto mayor a cero.");
-    onSave(mov.transferId, { fromCard, toCard, amount: amt, date, title: title.trim(), description: description.trim() });
+    onSave(mov.transferId, { fromCard, toCard, amount: amt, date, time, title: title.trim(), description: description.trim() });
   };
 
   return (
@@ -437,8 +451,11 @@ function TransferEditor({ mov, data, onSave, onCancel }) {
         <Field label="Monto (MXN)">
           <TextInput type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
         </Field>
-        <Field label="Fecha">
-          <TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        <Field label="Fecha y hora">
+          <div className="flex gap-2">
+            <TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            <TextInput type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ width: 120 }} />
+          </div>
         </Field>
         <Field label="Título (opcional)">
           <TextInput value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Se genera solo si lo dejas vacío" />
@@ -472,7 +489,7 @@ export default function Movimientos({ data, update }) {
       const from = cards.find((c) => c.id === fields.fromCard);
       const to = cards.find((c) => c.id === fields.toCard);
       const tid = uid();
-      const base = { categoryId: null, date: fields.date, months: 1, commission: 0, transfer: true, transferId: tid, description: "" };
+      const base = { categoryId: null, date: fields.date, time: fields.time, months: 1, commission: 0, transfer: true, transferId: tid, description: "" };
       return update({
         movements: [
           { ...base, id: uid(), cardId: fields.fromCard, type: "gasto", amount: fields.amount, title: fields.title || `Transferencia a ${to?.name || "?"}` },
@@ -506,6 +523,7 @@ export default function Movimientos({ data, update }) {
   const [accOpen, setAccOpen] = useState(false); // modal de cuentas/tarjetas
   const [categoryId, setCategoryId] = useState("");
   const [date, setDate] = useState(todayISO());
+  const [time, setTime] = useState(nowHM());
   const [aMeses, setAMeses] = useState(false);
   const [months, setMonths] = useState(3);
   const [otroMeses, setOtroMeses] = useState(false); // meses personalizados ("Otro…")
@@ -539,7 +557,7 @@ export default function Movimientos({ data, update }) {
 
   const resetForm = () => {
     setType("gasto"); setAccountId(""); setCardId(""); setToAccountId(""); setToCardId(""); setAmount(""); setTitle(""); setDescription("");
-    setCategoryId(""); setDate(todayISO()); setAMeses(false); setMonths(3); setOtroMeses(false); setCustomM(""); setCommission(""); setError("");
+    setCategoryId(""); setDate(todayISO()); setTime(nowHM()); setAMeses(false); setMonths(3); setOtroMeses(false); setCustomM(""); setCommission(""); setError("");
     setSplitMode(false); setSplitRows([{ accountId: "", cardId: "", amount: "" }, { accountId: "", cardId: "", amount: "" }]);
   };
 
@@ -562,10 +580,10 @@ export default function Movimientos({ data, update }) {
     const desc = description.trim();
     if (rows.length === 1) {
       // Un solo medio: es un gasto normal, sin marca de dividido
-      update({ movements: [{ id: uid(), cardId: rows[0].cardId, type: "gasto", amount: rows[0].amount, title: t, description: desc, categoryId, date, months: 1, commission: 0 }, ...movements] });
+      update({ movements: [{ id: uid(), cardId: rows[0].cardId, type: "gasto", amount: rows[0].amount, title: t, description: desc, categoryId, date, time, months: 1, commission: 0 }, ...movements] });
     } else {
       const sid = uid();
-      const legs = rows.map((r) => ({ id: uid(), cardId: r.cardId, type: "gasto", amount: r.amount, title: t, description: desc, categoryId, date, months: 1, commission: 0, split: true, splitId: sid }));
+      const legs = rows.map((r) => ({ id: uid(), cardId: r.cardId, type: "gasto", amount: r.amount, title: t, description: desc, categoryId, date, time, months: 1, commission: 0, split: true, splitId: sid }));
       update({ movements: [...legs, ...movements] });
     }
     resetForm();
@@ -586,7 +604,7 @@ export default function Movimientos({ data, update }) {
       const to = cards.find((c) => c.id === toCardId);
       const tid = uid();
       const t = title.trim();
-      const base = { categoryId: null, date, months: 1, commission: 0, transfer: true, transferId: tid, description: description.trim() };
+      const base = { categoryId: null, date, time, months: 1, commission: 0, transfer: true, transferId: tid, description: description.trim() };
       update({
         movements: [
           { ...base, id: uid(), cardId, type: "gasto", amount: amt, title: t || `Transferencia a ${to?.name || "?"}` },
@@ -614,6 +632,7 @@ export default function Movimientos({ data, update }) {
       description: description.trim(),
       categoryId,
       date,
+      time,
       months: isCreditExpense && aMeses ? Number(effMonths) : 1,
       commission: isCreditExpense && aMeses ? (parseFloat(commission) || 0) : 0,
     };
@@ -628,13 +647,13 @@ export default function Movimientos({ data, update }) {
   };
 
   // Guarda una transferencia editando sus DOS patas juntas (mantiene el cuadre)
-  const saveTransfer = (transferId, { fromCard, toCard, amount: amt, date: d, title: t, description: desc }) => {
+  const saveTransfer = (transferId, { fromCard, toCard, amount: amt, date: d, time: tm, title: t, description: desc }) => {
     const from = cards.find((c) => c.id === fromCard);
     const to = cards.find((c) => c.id === toCard);
     update({
       movements: movements.map((m) => {
         if (m.transferId !== transferId) return m;
-        const base = { ...m, amount: amt, date: d, description: desc, months: 1, commission: 0 };
+        const base = { ...m, amount: amt, date: d, time: tm, description: desc, months: 1, commission: 0 };
         if (m.type === "gasto") return { ...base, cardId: fromCard, title: t || `Transferencia a ${to?.name || "?"}` };
         return { ...base, cardId: toCard, title: t || `Transferencia desde ${from?.name || "?"}` };
       }),
@@ -650,7 +669,9 @@ export default function Movimientos({ data, update }) {
     update({ movements: movements.filter((m) => m.id !== id) });
   };
 
-  const sorted = [...movements].sort((a, b) => (a.date < b.date ? 1 : -1));
+  // Orden por fecha + hora (24h); sin hora cae a las 00:00 de su día
+  const movKey = (m) => `${m.date}T${m.time || "00:00"}`;
+  const sorted = [...movements].sort((a, b) => (movKey(a) < movKey(b) ? 1 : -1));
   const byCat = catFilter.length ? sorted.filter((m) => catFilter.includes(m.categoryId)) : sorted;
   // Filtro por cuenta (toda) o por tarjeta suelta: pasa si coincide con cualquiera
   const selActive = accFilter.length > 0 || cardFilter.length > 0;
@@ -727,8 +748,11 @@ export default function Movimientos({ data, update }) {
                 { value: "transfer", label: "Transferencia entre cuentas" },
               ]}
             />
-            <Field label="Fecha">
-              <TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            <Field label="Fecha y hora">
+              <div className="flex gap-2">
+                <TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+                <TextInput type="time" value={time} onChange={(e) => setTime(e.target.value)} style={{ width: 120 }} />
+              </div>
             </Field>
             {type === "gasto" && (
               <div className="sm:col-span-2">
@@ -1110,7 +1134,7 @@ export default function Movimientos({ data, update }) {
                         );
                       })}
                     </ul>
-                    <p className="text-xs mt-1" style={{ color: C.faint }}>{rep.date}</p>
+                    <p className="text-xs mt-1" style={{ color: C.faint }}>{rep.date}{rep.time ? ` · ${rep.time}` : ""}</p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <Amount value={total} sign="-" size="text-sm" />
@@ -1149,7 +1173,7 @@ export default function Movimientos({ data, update }) {
                     <p className="text-xs mt-0.5" style={{ color: C.muted }}>{m.description}</p>
                   )}
                   <p className="text-xs mt-1" style={{ color: C.faint }}>
-                    {m.date} · {card ? cardLabel(card, accounts) : "Tarjeta eliminada"}
+                    {m.date}{m.time ? ` · ${m.time}` : ""} · {card ? cardLabel(card, accounts) : "Tarjeta eliminada"}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
